@@ -1,0 +1,6 @@
+{
+  "name": "Nexus Travel CRM",
+  "description": "A basic SAAS travel CRM featuring specialized dashboards for Super Admins, Agency Owners, and Travel Agents.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
