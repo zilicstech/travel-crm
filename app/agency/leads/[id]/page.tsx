@@ -33,7 +33,8 @@ export default function AgencyLeadDetailPage() {
   // Add Traveller Modal State
   const [showAddTravellerModal, setShowAddTravellerModal] = useState(false);
   const [selectedMemberIds, setSelectedMemberIds] = useState<Record<string, boolean>>({});
-  const [travellerStatusSelect, setTravellerStatusSelect] = useState<TravellerStatus>('Confirmed');
+  const [isCreatingMember, setIsCreatingMember] = useState(false);
+  const [newMemberData, setNewMemberData] = useState({ name: '', relation: 'Self' as import('@/lib/mockData').Relation, dob: '' });
 
   // Add Proposal Item Modal State
   const [showAddProposalModal, setShowAddProposalModal] = useState(false);
@@ -195,7 +196,23 @@ export default function AgencyLeadDetailPage() {
   // ── Add Traveller Handler ───────────────────────────────────────────────────
   const handleAddTravellersSubmit = () => {
     if (!client) return;
-    const memberIdsToAdd = Object.keys(selectedMemberIds).filter(id => selectedMemberIds[id]);
+    
+    let memberIdsToAdd = Object.keys(selectedMemberIds).filter(id => selectedMemberIds[id]);
+    
+    if (isCreatingMember) {
+      if (!newMemberData.name.trim()) return;
+      const newMember = {
+        id: `M${Date.now()}`,
+        name: newMemberData.name.trim(),
+        relation: newMemberData.relation,
+        dob: newMemberData.dob,
+        documents: [],
+        isActive: true,
+      };
+      client.members.push(newMember); // Mutate mock client for demo session
+      memberIdsToAdd = [newMember.id];
+    }
+    
     if (memberIdsToAdd.length === 0) return;
 
     const existingMemberIds = lead.travellers.map(t => t.memberId);
@@ -203,7 +220,7 @@ export default function AgencyLeadDetailPage() {
       .filter(id => !existingMemberIds.includes(id))
       .map(memberId => ({
         memberId,
-        status: travellerStatusSelect,
+        status: 'Confirmed' as TravellerStatus,
         visaChecklist: { passportCollected: false, photosCollected: false, formsFilled: false, submittedToEmbassy: false, approved: false }
       }));
 
@@ -223,13 +240,15 @@ export default function AgencyLeadDetailPage() {
       timeline: [{
         id: `T${Date.now()}`,
         type: 'traveller_added',
-        description: `Added traveller(s): ${addedMemberNames} (${travellerStatusSelect})`,
+        description: `Added traveller(s): ${addedMemberNames}`,
         timestamp: new Date().toISOString(),
         actor: 'John Davis'
       }, ...prev.timeline]
     } : prev);
 
     setSelectedMemberIds({});
+    setIsCreatingMember(false);
+    setNewMemberData({ name: '', relation: 'Self' as any, dob: '' });
     setShowAddTravellerModal(false);
   };
 
@@ -1026,59 +1045,95 @@ export default function AgencyLeadDetailPage() {
         </ModalHeader>
         <ModalBody>
           <div className="space-y-4">
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1.5">Select Registration Status</label>
-              <Select value={travellerStatusSelect} onChange={e => setTravellerStatusSelect(e.target.value as TravellerStatus)}>
-                <option value="Confirmed">Confirmed</option>
-                <option value="Tentative">Tentative</option>
-              </Select>
-            </div>
-
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-2">Available Members ({client?.members.filter(m => m.isActive).length})</label>
-              <div className="border border-slate-200 rounded-xl overflow-hidden divide-y divide-slate-100 max-h-60 overflow-y-auto">
-                {client?.members.filter(m => m.isActive).map(member => {
-                  const isAlreadyAdded = lead.travellers.some(t => t.memberId === member.id);
-                  const isSelected = !!selectedMemberIds[member.id];
-
-                  return (
-                    <div 
-                      key={member.id} 
-                      onClick={() => {
-                        if (!isAlreadyAdded) {
-                          setSelectedMemberIds(p => ({ ...p, [member.id]: !p[member.id] }));
-                        }
-                      }}
-                      className={`p-3 flex items-center justify-between ${
-                        isAlreadyAdded ? 'bg-slate-50 opacity-60 cursor-not-allowed' : 'hover:bg-slate-50 cursor-pointer'
-                      }`}
-                    >
-                      <div className="flex items-center gap-3">
-                        <div className={`w-5 h-5 rounded border flex items-center justify-center ${
-                          isAlreadyAdded ? 'bg-slate-200 border-slate-300' : isSelected ? 'bg-blue-600 border-blue-600 text-white' : 'border-slate-300 bg-white'
-                        }`}>
-                          {isAlreadyAdded && <Check className="w-3 h-3 text-slate-500" />}
-                          {!isAlreadyAdded && isSelected && <Check className="w-3.5 h-3.5" />}
-                        </div>
-                        <div>
-                          <p className="text-sm font-semibold text-slate-900">{member.name}</p>
-                          <p className="text-xs text-slate-500">{member.relation} {member.dob && `· DOB: ${member.dob}`}</p>
-                        </div>
-                      </div>
-                      {isAlreadyAdded && (
-                        <span className="text-[11px] font-semibold text-slate-500">Already Registered</span>
-                      )}
-                    </div>
-                  );
-                })}
+            {isCreatingMember ? (
+              <div className="bg-slate-50 border border-slate-200 p-4 rounded-xl space-y-4">
+                <div className="flex items-center justify-between mb-2">
+                  <h3 className="text-sm font-semibold text-slate-800">Create New Member</h3>
+                  <Button variant="ghost" size="xs" onClick={() => setIsCreatingMember(false)} className="text-slate-500">Cancel</Button>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-medium text-slate-600 mb-1.5">Full Name *</label>
+                    <Input placeholder="e.g. Rahul Sharma" value={newMemberData.name} onChange={e => setNewMemberData(p => ({ ...p, name: e.target.value }))} />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-600 mb-1.5">Relation</label>
+                    <Select value={newMemberData.relation} onChange={e => setNewMemberData(p => ({ ...p, relation: e.target.value as any }))}>
+                      <option value="Self">Self</option>
+                      <option value="Spouse">Spouse</option>
+                      <option value="Son">Son</option>
+                      <option value="Daughter">Daughter</option>
+                      <option value="Parent">Parent</option>
+                      <option value="Sibling">Sibling</option>
+                      <option value="Friend">Friend</option>
+                      <option value="Colleague">Colleague</option>
+                      <option value="Other">Other</option>
+                    </Select>
+                  </div>
+                  <div className="sm:col-span-2">
+                    <label className="block text-xs font-medium text-slate-600 mb-1.5">Date of Birth</label>
+                    <Input type="date" value={newMemberData.dob} onChange={e => setNewMemberData(p => ({ ...p, dob: e.target.value }))} />
+                  </div>
+                </div>
               </div>
-            </div>
+            ) : (
+              <>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-2">Available Members ({client?.members.filter(m => m.isActive).length})</label>
+                  <div className="border border-slate-200 rounded-xl overflow-hidden divide-y divide-slate-100 max-h-60 overflow-y-auto">
+                    {client?.members.filter(m => m.isActive).map(member => {
+                      const isAlreadyAdded = lead.travellers.some(t => t.memberId === member.id);
+                      const isSelected = !!selectedMemberIds[member.id];
+
+                      return (
+                        <div 
+                          key={member.id} 
+                          onClick={() => {
+                            if (!isAlreadyAdded) {
+                              setSelectedMemberIds(p => ({ ...p, [member.id]: !p[member.id] }));
+                            }
+                          }}
+                          className={`p-3 flex items-center justify-between ${
+                            isAlreadyAdded ? 'bg-slate-50 opacity-60 cursor-not-allowed' : 'hover:bg-slate-50 cursor-pointer'
+                          }`}
+                        >
+                          <div className="flex items-center gap-3">
+                            <div className={`w-5 h-5 rounded border flex items-center justify-center ${
+                              isAlreadyAdded ? 'bg-slate-200 border-slate-300' : isSelected ? 'bg-blue-600 border-blue-600 text-white' : 'border-slate-300 bg-white'
+                            }`}>
+                              {isAlreadyAdded && <Check className="w-3 h-3 text-slate-500" />}
+                              {!isAlreadyAdded && isSelected && <Check className="w-3.5 h-3.5" />}
+                            </div>
+                            <div>
+                              <p className="text-sm font-semibold text-slate-900">{member.name}</p>
+                              <p className="text-xs text-slate-500">{member.relation} {member.dob && `· DOB: ${member.dob}`}</p>
+                            </div>
+                          </div>
+                          {isAlreadyAdded && (
+                            <span className="text-[11px] font-semibold text-slate-500">Already Registered</span>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+                
+                <div className="relative py-4">
+                  <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-slate-200" /></div>
+                  <div className="relative flex justify-center"><span className="bg-white px-2 text-xs text-slate-500">OR</span></div>
+                </div>
+
+                <Button variant="outline" className="w-full h-12 border-dashed border-2 hover:bg-slate-50" onClick={() => setIsCreatingMember(true)}>
+                  <Plus className="w-4 h-4 text-slate-400 mr-2" /> Create New Member
+                </Button>
+              </>
+            )}
           </div>
         </ModalBody>
         <ModalFooter>
           <Button variant="ghost" size="sm" onClick={() => setShowAddTravellerModal(false)}>Cancel</Button>
-          <Button size="sm" onClick={handleAddTravellersSubmit} disabled={Object.values(selectedMemberIds).filter(Boolean).length === 0}>
-            Add Selected Members
+          <Button size="sm" onClick={handleAddTravellersSubmit} disabled={isCreatingMember ? !newMemberData.name.trim() : Object.values(selectedMemberIds).filter(Boolean).length === 0}>
+            {isCreatingMember ? 'Create & Add Member' : 'Add Selected Members'}
           </Button>
         </ModalFooter>
       </Modal>
