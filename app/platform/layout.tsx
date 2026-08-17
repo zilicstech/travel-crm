@@ -2,62 +2,26 @@
 
 import React, { useState } from 'react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
-import { Plane, LayoutDashboard, Building2, LogOut, Search, User } from 'lucide-react';
-import { Input } from '@/components/ui/Input';
-import { Button } from '@/components/ui/Button';
+import { usePathname, useRouter } from 'next/navigation';
+import { Plane, LayoutDashboard, Building2, LogOut, User } from 'lucide-react';
 
 export default function PlatformLayout({ children }: { children: React.ReactNode }) {
-  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const router = useRouter();
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const pathname = usePathname();
 
-  if (!isLoggedIn) {
-    return (
-      <div className="min-h-screen bg-slate-50 flex flex-col justify-center items-center p-4">
-        <div className="w-full max-w-md bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-          <div className="p-8 text-center border-b border-slate-100">
-            <div className="mx-auto w-12 h-12 bg-blue-50 rounded-xl flex items-center justify-center mb-4">
-              <Plane className="h-6 w-6 text-blue-600" />
-            </div>
-            <h1 className="text-xl font-bold text-slate-900 mb-1">Platform Admin</h1>
-            <p className="text-sm text-slate-500">Log in to manage TravelOS</p>
-          </div>
-          <div className="p-8 space-y-4">
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-slate-700">Email Address</label>
-              <Input type="email" placeholder="admin@travelos.com" defaultValue="admin@travelos.com" />
-            </div>
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-slate-700">Password</label>
-              <Input type="password" placeholder="••••••••" defaultValue="password" />
-            </div>
-            <Button className="w-full h-11 text-base mt-2" onClick={() => setIsLoggedIn(true)}>
-              Sign In
-            </Button>
-            <div className="pt-4 text-center">
-              <Link href="/" className="text-sm text-blue-600 hover:underline">
-                &larr; Back to Home
-              </Link>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
   const navItems = [
-    { href: '/platform', label: 'Platform Overview', icon: LayoutDashboard, exact: true },
+    { href: '/platform/dashboard', label: 'Platform Overview', icon: LayoutDashboard },
     { href: '/platform/agencies', label: 'Agency Management', icon: Building2 },
   ];
 
   const getPageTitle = () => {
-    const match = navItems.find(item => item.exact ? pathname === item.href : pathname.startsWith(item.href) && item.href !== '/platform');
+    const match = navItems.find(item => pathname === item.href || (pathname.startsWith(item.href) && item.href !== '/platform/dashboard'));
     return match ? match.label : 'Platform Overview';
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col md:flex-row">
+    <div className="min-h-screen bg-slate-50 flex flex-col md:flex-row text-left">
       <aside className="w-full md:w-64 bg-white border-r border-slate-200 flex-shrink-0 flex flex-col">
         <div className="h-16 flex items-center px-6 border-b border-slate-200">
           <Plane className="h-5 w-5 text-blue-600 mr-2" />
@@ -67,7 +31,7 @@ export default function PlatformLayout({ children }: { children: React.ReactNode
           <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-4 px-3">Platform Admin</p>
           <div className="space-y-1">
             {navItems.map(item => {
-              const isActive = item.exact ? pathname === item.href : (pathname.startsWith(item.href) && item.href !== '/platform');
+              const isActive = pathname === item.href || (pathname.startsWith(item.href) && item.href !== '/platform/dashboard');
               return (
                 <Link
                   key={item.href}
@@ -108,10 +72,7 @@ export default function PlatformLayout({ children }: { children: React.ReactNode
                   <p className="text-sm font-semibold text-slate-900">Admin User</p>
                   <p className="text-[11px] text-slate-500">Super Admin</p>
                 </div>
-                <Link href="/platform/profile" onClick={() => setIsDropdownOpen(false)} className="block px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 flex items-center">
-                  <User className="w-4 h-4 mr-2" /> My Profile
-                </Link>
-                <button onClick={() => { setIsLoggedIn(false); setIsDropdownOpen(false); }} className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 flex items-center">
+                <button onClick={() => { setIsDropdownOpen(false); router.push('/login'); }} className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 flex items-center">
                   <LogOut className="w-4 h-4 mr-2" /> Logout
                 </button>
               </div>

@@ -1,10 +1,10 @@
 'use client';
 
 import React, { useState } from 'react';
-import { initialAgents, initialBookings, initialLeads, initialClientInvoices } from '@/lib/mockData';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line } from 'recharts';
-import { FileText, Download } from 'lucide-react';
+import { initialAgents, initialBookings, initialLeads, initialClientInvoices as initialInvoices, getClientById } from '@/lib/mockData';
+import { Card, CardContent } from '@/components/ui/Card';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
+import { Download } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 
 const formatINR = (n: number) => '₹' + n.toLocaleString('en-IN');
@@ -21,11 +21,19 @@ export default function AgencyReportsPage() {
   ];
 
   // Employee Data
-  const employeeData = initialAgents.map(a => ({
-    name: a.name,
-    revenue: a.revenueGenerated,
-    conversion: a.conversionPercent,
-  }));
+  const employeeData = initialAgents.map(a => {
+    const agentBookings = initialBookings.filter(b => b.agentId === a.id);
+    const agentRevenue = agentBookings.reduce((s, b) => s + b.sellingPrice, 0);
+    const agentLeads = initialLeads.filter(l => l.assignedTo === a.id);
+    const bookedLeads = agentLeads.filter(l => l.status === 'Booked').length;
+    const conversion = agentLeads.length > 0 ? Math.round((bookedLeads / agentLeads.length) * 100) : 0;
+    
+    return {
+      name: a.name,
+      revenue: agentRevenue,
+      conversion,
+    };
+  });
 
   // Leads Data
   const leadSourceData = [
@@ -34,9 +42,10 @@ export default function AgencyReportsPage() {
     { name: 'WhatsApp', value: initialLeads.filter(l => l.source === 'WhatsApp').length },
     { name: 'Referral', value: initialLeads.filter(l => l.source === 'Referral').length },
     { name: 'Social Media', value: initialLeads.filter(l => l.source === 'Social Media').length },
+    { name: 'Other', value: initialLeads.filter(l => l.source === 'Other').length },
   ].filter(d => d.value > 0);
   
-  const leadColors = ['#3b82f6', '#22c55e', '#10b981', '#a855f7', '#ec4899'];
+  const leadColors = ['#3b82f6', '#22c55e', '#10b981', '#a855f7', '#ec4899', '#f59e0b'];
 
   // Booking Data
   const bookingTypeData = [
@@ -51,9 +60,9 @@ export default function AgencyReportsPage() {
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
-        <h1 className="text-2xl font-bold text-slate-900">Reports Center</h1>
-        <Button variant="outline" className="flex items-center gap-2">
-          <Download className="w-4 h-4" /> Export Current View (CSV)
+        <h1 className="text-xl font-bold text-slate-900">Reports Center</h1>
+        <Button size="sm" variant="outline">
+          <Download className="w-4 h-4 mr-2" /> Export View
         </Button>
       </div>
 
@@ -84,7 +93,7 @@ export default function AgencyReportsPage() {
                         <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                         <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fill: '#64748b', fontSize: 11}} />
                         <YAxis axisLine={false} tickLine={false} tickFormatter={(v) => `₹${(v/1000).toFixed(0)}k`} tick={{fill: '#64748b', fontSize: 11}} />
-                        <Tooltip formatter={(v: any) => formatINR(Number(v))} contentStyle={{ borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '12px' }} />
+                        <Tooltip formatter={(v: any) => formatINR(Number(v))} contentStyle={{ borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '12px', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)' }} />
                         <Bar dataKey="revenue" fill="#2563eb" radius={[4, 4, 0, 0]} />
                       </BarChart>
                     </ResponsiveContainer>
@@ -92,26 +101,28 @@ export default function AgencyReportsPage() {
                 </div>
                 <div>
                   <h3 className="text-sm font-bold text-slate-900 mb-4">Collection Status Overview</h3>
-                  <table className="w-full text-sm text-left">
-                    <thead className="bg-slate-50 border-b border-slate-100">
-                      <tr className="text-slate-400 font-medium uppercase tracking-wider text-[10px]">
-                        <th className="px-4 py-2">Invoice</th>
-                        <th className="px-4 py-2 text-right">Total</th>
-                        <th className="px-4 py-2 text-right">Paid</th>
-                        <th className="px-4 py-2">Status</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {initialClientInvoices.map(inv => (
-                        <tr key={inv.id}>
-                          <td className="px-4 py-2 font-bold text-slate-900">{inv.id}</td>
-                          <td className="px-4 py-2 text-right">{formatINR(inv.totalWithGst)}</td>
-                          <td className="px-4 py-2 text-right text-green-600 font-semibold">{formatINR(inv.amountPaid)}</td>
-                          <td className="px-4 py-2"><span className={`px-2 py-0.5 text-[9px] font-bold uppercase rounded-full ${inv.status === 'Paid' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>{inv.status}</span></td>
+                  <div className="overflow-x-auto">
+                    <table className="data-table">
+                      <thead>
+                        <tr>
+                          <th>Invoice</th>
+                          <th className="text-right">Total</th>
+                          <th className="text-right">Paid</th>
+                          <th>Status</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                      </thead>
+                      <tbody>
+                        {initialInvoices.map(inv => (
+                          <tr key={inv.id}>
+                            <td className="font-bold text-slate-900">{inv.id}</td>
+                            <td className="text-right text-sm font-bold text-slate-900">{formatINR(inv.totalWithGst)}</td>
+                            <td className="text-right text-sm font-bold text-green-600">{formatINR(inv.amountPaid)}</td>
+                            <td><span className={`px-2 py-0.5 text-[9px] font-bold uppercase rounded-full ${inv.status === 'Paid' ? 'bg-green-100 text-green-700' : inv.status === 'Partial' ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700'}`}>{inv.status}</span></td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
               </div>
             </div>
@@ -119,37 +130,39 @@ export default function AgencyReportsPage() {
 
           {activeTab === 'employee' && (
             <div className="space-y-6">
-              <h3 className="text-sm font-bold text-slate-900 mb-4">Revenue Generated by Agent vs Target</h3>
+              <h3 className="text-sm font-bold text-slate-900 mb-4">Revenue Generated by Agent</h3>
               <div className="h-72 mb-6">
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={employeeData} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                     <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fill: '#64748b', fontSize: 11}} />
                     <YAxis yAxisId="left" orientation="left" axisLine={false} tickLine={false} tickFormatter={(v) => `₹${(v/1000).toFixed(0)}k`} tick={{fill: '#64748b', fontSize: 11}} />
-                    <Tooltip formatter={(v: any) => formatINR(Number(v))} contentStyle={{ borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '12px' }} />
+                    <Tooltip formatter={(v: any) => formatINR(Number(v))} contentStyle={{ borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '12px', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)' }} />
                     <Bar yAxisId="left" dataKey="revenue" fill="#3b82f6" name="Revenue" radius={[4, 4, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
               </div>
-              <h3 className="text-sm font-bold text-slate-900 mb-4">Agent KPI Data Table</h3>
-              <table className="w-full text-sm text-left">
-                <thead className="bg-slate-50 border-b border-slate-100">
-                  <tr className="text-slate-400 font-medium uppercase tracking-wider text-[10px]">
-                    <th className="px-4 py-2">Agent Name</th>
-                    <th className="px-4 py-2 text-right">Revenue</th>
-                    <th className="px-4 py-2 text-right">Conv %</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {employeeData.map(a => (
-                    <tr key={a.name}>
-                      <td className="px-4 py-2 font-bold text-slate-900">{a.name}</td>
-                      <td className="px-4 py-2 text-right font-semibold text-green-700">{formatINR(a.revenue)}</td>
-                      <td className="px-4 py-2 text-right font-bold">{a.conversion}%</td>
+              <h3 className="text-sm font-bold text-slate-900 mb-4">Agent KPI Data</h3>
+              <div className="overflow-x-auto">
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th>Agent Name</th>
+                      <th className="text-right">Revenue</th>
+                      <th className="text-right">Conv %</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {employeeData.map(a => (
+                      <tr key={a.name}>
+                        <td className="font-bold text-slate-900">{a.name}</td>
+                        <td className="text-right text-sm font-bold text-green-700">{formatINR(a.revenue)}</td>
+                        <td className="text-right text-sm font-bold text-slate-900">{a.conversion}%</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
           )}
 
@@ -181,24 +194,32 @@ export default function AgencyReportsPage() {
               
               <div>
                 <h3 className="text-sm font-bold text-slate-900 mb-4">Recent Leads Log</h3>
-                <table className="w-full text-sm text-left">
-                  <thead className="bg-slate-50 border-b border-slate-100">
-                    <tr className="text-slate-400 font-medium uppercase tracking-wider text-[10px]">
-                      <th className="px-4 py-2">Lead</th>
-                      <th className="px-4 py-2">Source</th>
-                      <th className="px-4 py-2">Status</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {initialLeads.map(l => (
-                      <tr key={l.id}>
-                        <td className="px-4 py-2 font-bold text-slate-900">{l.name}</td>
-                        <td className="px-4 py-2 text-xs text-slate-600">{l.source}</td>
-                        <td className="px-4 py-2 text-xs font-semibold">{l.status}</td>
+                <div className="overflow-x-auto">
+                  <table className="data-table">
+                    <thead>
+                      <tr>
+                        <th>Client / Dest</th>
+                        <th>Source</th>
+                        <th>Status</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody>
+                      {initialLeads.slice(0, 10).map(l => {
+                        const client = getClientById(l.clientId);
+                        return (
+                          <tr key={l.id}>
+                            <td>
+                              <div className="font-bold text-slate-900">{client?.name || 'Unknown'}</div>
+                              <div className="text-xs text-slate-500">{l.destination}</div>
+                            </td>
+                            <td className="text-xs text-slate-600">{l.source}</td>
+                            <td className="text-xs font-semibold">{l.status}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             </div>
           )}
@@ -231,24 +252,26 @@ export default function AgencyReportsPage() {
 
               <div>
                 <h3 className="text-sm font-bold text-slate-900 mb-4">Recent Bookings Log</h3>
-                <table className="w-full text-sm text-left">
-                  <thead className="bg-slate-50 border-b border-slate-100">
-                    <tr className="text-slate-400 font-medium uppercase tracking-wider text-[10px]">
-                      <th className="px-4 py-2">Booking ID</th>
-                      <th className="px-4 py-2">Type</th>
-                      <th className="px-4 py-2 text-right">Value</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {initialBookings.slice(0, 10).map(b => (
-                      <tr key={b.id}>
-                        <td className="px-4 py-2 font-bold text-slate-900">{b.id}</td>
-                        <td className="px-4 py-2 text-xs text-slate-600">{b.type}</td>
-                        <td className="px-4 py-2 text-right font-semibold text-green-700">{formatINR(b.sellingPrice)}</td>
+                <div className="overflow-x-auto">
+                  <table className="data-table">
+                    <thead>
+                      <tr>
+                        <th>Booking ID</th>
+                        <th>Type</th>
+                        <th className="text-right">Value</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody>
+                      {initialBookings.slice(0, 10).map(b => (
+                        <tr key={b.id}>
+                          <td className="font-bold text-slate-900">{b.id}</td>
+                          <td className="text-xs text-slate-600">{b.type}</td>
+                          <td className="text-right text-sm font-bold text-emerald-700">{formatINR(b.sellingPrice)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             </div>
           )}

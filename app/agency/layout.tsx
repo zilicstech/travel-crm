@@ -1,131 +1,208 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
-import { Plane, LogOut, LayoutDashboard, Users, UserPlus, Receipt, FileText, BarChart3, User, Search, Briefcase, Settings, Shield } from 'lucide-react';
-import { Input } from '@/components/ui/Input';
-import { Button } from '@/components/ui/Button';
+import { usePathname, useRouter } from 'next/navigation';
+import {
+  Plane, LogOut, LayoutDashboard, Users, UserPlus, Receipt,
+  BarChart3, User, Briefcase, Shield, ChevronRight, Menu, X,
+  Bell, Building2, Sliders
+} from 'lucide-react';
 
 export default function AgencyLayout({ children }: { children: React.ReactNode }) {
-  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const router = useRouter();
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const pathname = usePathname();
+  const dropdownRef = useRef<HTMLDivElement>(null);
 
-  if (!isLoggedIn) {
-    return (
-      <div className="min-h-screen bg-slate-50 flex flex-col justify-center items-center p-4">
-        <div className="w-full max-w-md bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-          <div className="p-8 text-center border-b border-slate-100">
-            <div className="mx-auto w-12 h-12 bg-blue-600 rounded-xl flex items-center justify-center mb-4">
-              <Plane className="h-6 w-6 text-white" />
-            </div>
-            <h1 className="text-xl font-bold text-slate-900 mb-1">Agency Owner Login</h1>
-            <p className="text-sm text-slate-500">Log in to manage your travel agency</p>
-          </div>
-          <div className="p-8 space-y-4">
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-slate-700">Email Address</label>
-              <Input type="email" placeholder="owner@agency.com" defaultValue="owner@globalexplorer.com" />
-            </div>
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-slate-700">Password</label>
-              <Input type="password" placeholder="••••••••" defaultValue="password" />
-            </div>
-            <Button className="w-full h-11 text-base bg-slate-900 hover:bg-slate-800 text-white mt-2" onClick={() => setIsLoggedIn(true)}>
-              Sign In
-            </Button>
-            <div className="pt-4 text-center">
-              <Link href="/" className="text-sm text-blue-600 hover:underline">
-                &larr; Back to Home
-              </Link>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
+  // Close dropdown on outside click
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setIsDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
 
+  // Close mobile menu on route change
+  useEffect(() => {
+    setIsMobileMenuOpen(false);
+  }, [pathname]);
+
+  // ── Navigation ──────────────────────────────────────────────────────────
   const navItems = [
-    { href: '/agency', label: 'Dashboard', icon: LayoutDashboard, exact: true },
+    { href: '/agency/dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { href: '/agency/agents', label: 'Agents', icon: Users },
     { href: '/agency/leads', label: 'Leads', icon: UserPlus },
-    { href: '/agency/customers', label: 'Customers', icon: User },
+    { href: '/agency/clients', label: 'Clients', icon: Building2 },
     { href: '/agency/bookings', label: 'Bookings', icon: Briefcase },
     { href: '/agency/visa', label: 'Visa', icon: Shield },
     { href: '/agency/invoices', label: 'Invoices', icon: Receipt },
     { href: '/agency/reports', label: 'Reports', icon: BarChart3 },
+    { href: '/agency/settings', label: 'Settings', icon: Sliders },
   ];
 
-  const getPageTitle = () => {
-    const match = navItems.find(item => item.exact ? pathname === item.href : pathname.startsWith(item.href) && item.href !== '/agency');
-    return match ? match.label : 'Dashboard';
+  const isActive = (item: typeof navItems[0]) =>
+    pathname === item.href || (pathname.startsWith(item.href) && item.href !== '/agency/dashboard');
+
+  // Breadcrumbs
+  const breadcrumbs = () => {
+    const segments = pathname.split('/').filter(Boolean);
+    if (segments.length <= 1) return null;
+    return (
+      <nav className="flex items-center gap-1 text-sm">
+        {segments.map((seg, i) => {
+          const path = '/' + segments.slice(0, i + 1).join('/');
+          const label = seg.charAt(0).toUpperCase() + seg.slice(1).replace(/[-_]/g, ' ');
+          const isLast = i === segments.length - 1;
+          return (
+            <span key={path} className="flex items-center gap-1">
+              {i > 0 && <ChevronRight className="w-3.5 h-3.5 text-slate-300" />}
+              {isLast ? (
+                <span className="text-slate-900 font-medium text-sm">{label}</span>
+              ) : (
+                <Link href={path} className="text-slate-400 hover:text-slate-600 text-sm transition-colors">{label}</Link>
+              )}
+            </span>
+          );
+        })}
+      </nav>
+    );
   };
 
-  return (
-    <div className="min-h-screen bg-slate-50 flex flex-col md:flex-row">
-      <aside className="w-full md:w-64 bg-white border-r border-slate-200 flex-shrink-0 flex flex-col">
-        <div className="h-16 flex items-center px-6 border-b border-slate-200">
-          <Plane className="h-5 w-5 text-blue-600 mr-2" />
-          <span className="font-bold text-lg text-slate-900 tracking-tight">TravelOS</span>
+  const sidebarContent = (
+    <>
+      {/* Logo */}
+      <div className="h-14 flex items-center px-5 border-b border-slate-700/50 flex-shrink-0">
+        <Plane className="h-5 w-5 text-blue-400 mr-2.5" />
+        <span className="font-bold text-base text-white tracking-tight">TravelOS</span>
+      </div>
+
+      {/* Nav */}
+      <div className="p-3 flex-1 overflow-y-auto">
+        <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-widest mb-2 px-3">Main Menu</p>
+        <div className="space-y-0.5">
+          {navItems.map(item => {
+            const active = isActive(item);
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                className={`flex items-center w-full px-3 py-2 text-[13px] font-medium rounded-lg transition-all duration-150 ${
+                  active
+                    ? 'text-white bg-blue-600/90'
+                    : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
+                }`}
+              >
+                <item.icon className="h-4 w-4 mr-3 flex-shrink-0" /> {item.label}
+              </Link>
+            );
+          })}
         </div>
-        <div className="p-4 flex-1 overflow-y-auto">
-          <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-4 px-3">Agency Owner</p>
-          <div className="space-y-1">
-            {navItems.map(item => {
-              const isActive = item.exact ? pathname === item.href : (pathname.startsWith(item.href) && item.href !== '/agency');
-              return (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  className={`flex items-center w-full px-3 py-2 text-sm font-medium rounded-md transition-colors ${
-                    isActive ? 'text-blue-600 bg-blue-50' : 'text-slate-600 hover:bg-slate-50'
-                  }`}
-                >
-                  <item.icon className="h-4 w-4 mr-3" /> {item.label}
-                </Link>
-              );
-            })}
+      </div>
+
+      {/* User card at bottom */}
+      <div className="p-3 border-t border-slate-700/50 flex-shrink-0">
+        <div className="flex items-center gap-3 px-3 py-2">
+          <div className="w-8 h-8 rounded-lg bg-blue-600/20 flex items-center justify-center text-blue-400 font-semibold text-xs flex-shrink-0">
+            JD
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-medium text-slate-200 truncate">John Davis</p>
+            <p className="text-[11px] text-slate-500 truncate">Agency Owner</p>
           </div>
         </div>
+      </div>
+    </>
+  );
+
+  return (
+    <div className="min-h-screen bg-[var(--surface-bg)] flex">
+      {/* Desktop Sidebar */}
+      <aside className="hidden md:flex w-[260px] bg-slate-900 flex-col flex-shrink-0 fixed inset-y-0 left-0 z-30">
+        {sidebarContent}
       </aside>
 
-      <main className="flex-1 flex flex-col overflow-hidden">
-        <header className="h-16 bg-white border-b border-slate-200 flex items-center px-6 justify-between">
-          <div className="flex items-center gap-4">
-            <h2 className="text-sm font-semibold text-slate-800">{getPageTitle()}</h2>
-          </div>
-          <div className="flex gap-4 relative">
-            <button 
-              onClick={() => setIsDropdownOpen(!isDropdownOpen)}
-              className="flex items-center gap-2 hover:bg-slate-50 p-1.5 rounded-lg transition-colors"
+      {/* Mobile Menu Overlay */}
+      {isMobileMenuOpen && (
+        <div className="fixed inset-0 z-40 md:hidden">
+          <div className="fixed inset-0 bg-black/50" onClick={() => setIsMobileMenuOpen(false)} />
+          <aside className="fixed inset-y-0 left-0 w-[280px] bg-slate-900 flex flex-col z-50 shadow-2xl">
+            <button
+              onClick={() => setIsMobileMenuOpen(false)}
+              className="absolute top-3 right-3 p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
             >
-              <div className="text-right hidden md:block">
-                <p className="text-sm font-semibold text-slate-900 leading-tight">John Davis</p>
-                <p className="text-[11px] text-slate-500">Agency Owner</p>
-              </div>
-              <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 font-bold text-xs">
-                JD
-              </div>
+              <X className="w-5 h-5" />
             </button>
-            {isDropdownOpen && (
-              <div className="absolute right-0 top-full mt-1 w-48 bg-white border border-slate-200 rounded-lg shadow-lg py-1 z-50">
-                <div className="px-4 py-2 border-b border-slate-100 md:hidden">
-                  <p className="text-sm font-semibold text-slate-900">John Davis</p>
-                  <p className="text-[11px] text-slate-500">Agency Owner</p>
+            {sidebarContent}
+          </aside>
+        </div>
+      )}
+
+      {/* Main */}
+      <main className="flex-1 flex flex-col md:ml-[260px] min-h-screen">
+        {/* Top Bar */}
+        <header className="h-14 bg-white border-b border-slate-200 flex items-center px-4 md:px-6 justify-between flex-shrink-0 sticky top-0 z-20">
+          <div className="flex items-center gap-3">
+            {/* Mobile hamburger */}
+            <button
+              onClick={() => setIsMobileMenuOpen(true)}
+              className="md:hidden p-1.5 rounded-lg text-slate-500 hover:bg-slate-100 transition-colors"
+            >
+              <Menu className="w-5 h-5" />
+            </button>
+            {breadcrumbs()}
+          </div>
+
+          <div className="flex items-center gap-2">
+            {/* Notification */}
+            <button className="p-2 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors relative">
+              <Bell className="w-4.5 h-4.5" />
+              <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full" />
+            </button>
+
+            {/* Profile */}
+            <div className="relative" ref={dropdownRef}>
+              <button
+                onClick={() => setIsDropdownOpen(!isDropdownOpen)}
+                className="flex items-center gap-2.5 hover:bg-slate-50 py-1.5 px-2 rounded-lg transition-colors"
+              >
+                <div className="w-7 h-7 rounded-lg bg-blue-100 flex items-center justify-center text-blue-600 font-semibold text-[11px]">
+                  JD
                 </div>
-                <Link href="/agency/account" onClick={() => setIsDropdownOpen(false)} className="block px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 flex items-center">
-                  <User className="w-4 h-4 mr-2" /> My Profile
-                </Link>
-                <button onClick={() => { setIsLoggedIn(false); setIsDropdownOpen(false); }} className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 flex items-center">
-                  <LogOut className="w-4 h-4 mr-2" /> Logout
-                </button>
-              </div>
-            )}
+                <div className="text-right hidden lg:block">
+                  <p className="text-[13px] font-medium text-slate-900 leading-tight">John Davis</p>
+                </div>
+              </button>
+              {isDropdownOpen && (
+                <div className="absolute right-0 top-full mt-1 w-52 bg-white border border-slate-200 rounded-xl shadow-lg py-1 z-50">
+                  <div className="px-4 py-3 border-b border-slate-100">
+                    <p className="text-sm font-medium text-slate-900">John Davis</p>
+                    <p className="text-xs text-slate-500">Agency Owner</p>
+                  </div>
+                  <Link href="/agency/account" onClick={() => setIsDropdownOpen(false)} className="flex items-center px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50">
+                    <User className="w-4 h-4 mr-2.5 text-slate-400" /> My Profile
+                  </Link>
+                  <Link href="/agency/settings" onClick={() => setIsDropdownOpen(false)} className="flex items-center px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50">
+                    <Sliders className="w-4 h-4 mr-2.5 text-slate-400" /> Agency Settings
+                  </Link>
+                  <div className="border-t border-slate-100">
+                    <button onClick={() => { setIsDropdownOpen(false); router.push('/login'); }} className="w-full text-left px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 flex items-center">
+                      <LogOut className="w-4 h-4 mr-2.5" /> Sign Out
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         </header>
-        <div className="flex-1 overflow-y-auto p-6 md:p-8">
-          <div className="max-w-6xl mx-auto">
+
+        {/* Content */}
+        <div className="flex-1 overflow-y-auto p-4 md:p-6">
+          <div className="max-w-[1200px] mx-auto">
             {children}
           </div>
         </div>

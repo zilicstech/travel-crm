@@ -1,487 +1,1316 @@
 'use client';
 
 import React, { useState } from 'react';
-import { useParams, useRouter } from 'next/navigation';
-import { initialLeads, Lead, LeadStatus, LeadCategory, ProposalItem, VisaTracker } from '@/lib/mockData';
+import { useParams } from 'next/navigation';
+import Link from 'next/link';
+import { 
+  initialLeads, Client, Lead, LeadNote, ProposalItem, Traveller, TravellerStatus, BookingVoucher, LeadInvoice, LeadStatus,
+  getClientById, getAgentById, deriveFareClass, hasBirthdayDuringTrip, getMemberById 
+} from '@/lib/mockData';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
-import {
-  ArrowLeft, Phone, Mail, MapPin, Calendar, Users, DollarSign,
-  Plus, Trash2, CheckSquare, Square, ClipboardList, Send, MessageSquare,
-  FileText, Link as LinkIcon, ChevronDown, Edit2, Check, Clock
+import { Badge, LeadStatusBadge, TravellerStatusBadge, InfoBadge } from '@/components/ui/Badge';
+import { Select } from '@/components/ui/Select';
+import { Modal, ModalHeader, ModalTitle, ModalDescription, ModalBody, ModalFooter } from '@/components/ui/Modal';
+import { 
+  ArrowLeft, Plus, Link as LinkIcon, Trash2, Edit, 
+  CheckCircle2, AlertTriangle, Gift, FileText, MessageSquare, DollarSign, Send, Users, Shield, Check, Calendar, Globe
 } from 'lucide-react';
 
-const ALL_STATUSES: LeadStatus[] = ['New', 'Contacted', 'Qualified', 'Proposal Sent', 'Negotiating', 'Booked', 'Lost'];
-
-const STATUS_COLORS: Record<LeadStatus, string> = {
-  'New': 'bg-blue-100 text-blue-700',
-  'Contacted': 'bg-cyan-100 text-cyan-700',
-  'Qualified': 'bg-indigo-100 text-indigo-700',
-  'Proposal Sent': 'bg-purple-100 text-purple-700',
-  'Negotiating': 'bg-orange-100 text-orange-700',
-  'Booked': 'bg-green-100 text-green-700',
-  'Lost': 'bg-slate-100 text-slate-500',
+const formatINR = (amount: number) => {
+  return new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(amount);
 };
 
-const CATEGORY_ICONS: Record<LeadCategory, string> = {
-  'Holiday Package': '🏖',
-  'Hotel': '🏨',
-  'Flight': '✈️',
-  'Visa': '🛂',
-};
-
-const ITEM_TYPES: ProposalItem['type'][] = ['Flight', 'Hotel', 'Transfer', 'Activity', 'Visa Fee', 'Miscellaneous'];
-
-function formatTimestamp(ts: string) {
-  const d = new Date(ts);
-  return d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) + ' · ' +
-    d.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
-}
-
-export default function LeadDetailPage() {
+export default function AgentLeadDetailPage() {
   const params = useParams();
-  const router = useRouter();
   const leadId = params.id as string;
+  const [lead, setLead] = useState<Lead | undefined>(initialLeads.find(l => l.id === leadId));
+  const [activeTab, setActiveTab] = useState<'details' | 'proposal' | 'bookings' | 'invoices' | 'visa' | 'timeline'>('details');
+  const [newNoteText, setNewNoteText] = useState('');
+  const [isCopied, setIsCopied] = useState(false);
 
-  // In a real app this would come from a global store; here we use local state seeded from mock data
-  const found = initialLeads.find(l => l.id === leadId);
-  const [lead, setLead] = useState<Lead | null>(found ?? null);
-  const [noteText, setNoteText] = useState('');
-  const [newItem, setNewItem] = useState<Partial<ProposalItem>>({ type: 'Flight', description: '', supplier: '', netCost: 0, sellingPrice: 0 });
-  const [showAddItem, setShowAddItem] = useState(false);
-  const [linkGenerated, setLinkGenerated] = useState(false);
-  const [editingFollowUp, setEditingFollowUp] = useState(false);
+  // Add Traveller Modal State
+  const [showAddTravellerModal, setShowAddTravellerModal] = useState(false);
+  const [selectedMemberIds, setSelectedMemberIds] = useState<Record<string, boolean>>({});
+  const [travellerStatusSelect, setTravellerStatusSelect] = useState<TravellerStatus>('Confirmed');
+
+  // Add Proposal Item Modal State
+  const [showAddProposalModal, setShowAddProposalModal] = useState(false);
+  const [newProposalItem, setNewProposalItem] = useState<{
+    description: string;
+    type: ProposalItem['type'];
+    supplier: string;
+    netCost: string;
+    sellingPrice: string;
+  }>({
+    description: '',
+    type: 'Flight',
+    supplier: '',
+    netCost: '',
+    sellingPrice: '',
+  });
+
+  // Add Booking Voucher Modal State
+  const [showAddVoucherModal, setShowAddVoucherModal] = useState(false);
+  const [newVoucher, setNewVoucher] = useState<{
+    type: BookingVoucher['type'];
+    supplier: string;
+    referenceNumber: string;
+    notes: string;
+  }>({
+    type: 'Flight',
+    supplier: '',
+    referenceNumber: '',
+    notes: '',
+  });
+
+  // Add Invoice Modal State
+  const [showAddInvoiceModal, setShowAddInvoiceModal] = useState(false);
+  const [newInvoice, setNewInvoice] = useState<{
+    description: string;
+    amount: string;
+    status: LeadInvoice['status'];
+    dueDate: string;
+  }>({
+    description: '',
+    amount: '',
+    status: 'Draft',
+    dueDate: '',
+  });
+
+  // Add Status Update Modal State
+  const [showUpdateStatusModal, setShowUpdateStatusModal] = useState(false);
+  const [updateStatusData, setUpdateStatusData] = useState<{
+    status: LeadStatus;
+    remarks: string;
+  }>({
+    status: lead?.status || 'New',
+    remarks: '',
+  });
 
   if (!lead) {
     return (
-      <div className="p-8 text-center">
-        <h2 className="text-lg font-bold text-slate-900 mb-2">Lead Not Found</h2>
-        <Button variant="outline" size="sm" onClick={() => router.back()}>← Back to Leads</Button>
+      <div className="flex flex-col items-center justify-center py-20 text-left">
+        <p className="text-sm text-slate-500">Lead not found.</p>
+        <Link href="/agents/leads" className="text-sm text-blue-600 hover:underline mt-2">&larr; Back to Leads</Link>
       </div>
     );
   }
 
-  // ── Updaters ──────────────────────────────────────────────────────────────
+  const client = getClientById(lead.clientId);
+  const agent = getAgentById(lead.assignedTo);
+  const totalNet = lead.proposalItems.reduce((sum, item) => sum + item.netCost, 0);
+  const totalSelling = lead.proposalItems.reduce((sum, item) => sum + item.sellingPrice, 0);
+  const margin = totalSelling > 0 ? ((totalSelling - totalNet) / totalSelling) * 100 : 0;
+  
+  // Conditional Visa tab visibility
+  const hasVisaCategory = Array.isArray(lead.categories) && lead.categories.includes('Visa');
 
-  const updateStatus = (status: LeadStatus) => setLead(l => l ? { ...l, status } : l);
-  const updateFollowUp = (date: string) => setLead(l => l ? { ...l, followUpDate: date } : l);
+  const handleUpdateStatusSubmit = () => {
+    if (!updateStatusData.remarks.trim()) return;
 
-  const addNote = () => {
-    if (!noteText.trim()) return;
-    const note = { id: `N${Date.now()}`, text: noteText.trim(), timestamp: new Date().toISOString(), author: 'Liam Smith' };
-    setLead(l => l ? { ...l, notes: [note, ...l.notes] } : l);
-    setNoteText('');
-  };
-
-  const addProposalItem = () => {
-    if (!newItem.description) return;
-    const item: ProposalItem = {
-      id: `PI${Date.now()}`,
-      type: newItem.type ?? 'Flight',
-      description: newItem.description ?? '',
-      supplier: newItem.supplier ?? '',
-      netCost: Number(newItem.netCost) || 0,
-      sellingPrice: Number(newItem.sellingPrice) || 0,
+    const noteObj: LeadNote = {
+      id: `N${Date.now()}`,
+      text: updateStatusData.remarks.trim(),
+      author: 'Liam Smith',
+      timestamp: new Date().toISOString(),
     };
-    setLead(l => l ? { ...l, proposalItems: [...l.proposalItems, item] } : l);
-    setNewItem({ type: 'Flight', description: '', supplier: '', netCost: 0, sellingPrice: 0 });
-    setShowAddItem(false);
+
+    setLead(prev => prev ? { 
+      ...prev, 
+      status: updateStatusData.status,
+      notes: [noteObj, ...prev.notes],
+      timeline: [
+        { id: `T${Date.now()}_status`, type: 'status_change', description: `Status changed to ${updateStatusData.status}`, timestamp: new Date().toISOString(), actor: 'Liam Smith' },
+        { id: `T${Date.now()}_note`, type: 'note_added', description: `Added note: "${updateStatusData.remarks.trim().substring(0, 35)}..."`, timestamp: new Date().toISOString(), actor: 'Liam Smith' },
+        ...prev.timeline
+      ]
+    } : prev);
+
+    setShowUpdateStatusModal(false);
+    setUpdateStatusData({ status: updateStatusData.status, remarks: '' });
   };
 
-  const removeProposalItem = (id: string) => {
-    setLead(l => l ? { ...l, proposalItems: l.proposalItems.filter(i => i.id !== id) } : l);
+  const handlePostNote = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!newNoteText.trim()) return;
+
+    const noteObj: LeadNote = {
+      id: `N${Date.now()}`,
+      text: newNoteText.trim(),
+      author: 'Liam Smith (Agent)',
+      timestamp: new Date().toISOString(),
+    };
+
+    setLead(prev => prev ? {
+      ...prev,
+      notes: [noteObj, ...prev.notes],
+      timeline: [{
+        id: `T${Date.now()}`,
+        type: 'note_added',
+        description: `Added note: "${newNoteText.trim().substring(0, 35)}..."`,
+        timestamp: new Date().toISOString(),
+        actor: 'Liam Smith'
+      }, ...prev.timeline]
+    } : prev);
+
+    setNewNoteText('');
   };
 
-  const toggleVisaStep = (field: keyof VisaTracker) => {
-    setLead(l => {
-      if (!l || !l.visaTracker) return l;
-      return { ...l, visaTracker: { ...l.visaTracker, [field]: !l.visaTracker[field] } };
+  const handleToggleVisaChecklist = (travellerIdx: number, key: string) => {
+    setLead(prev => {
+      if (!prev) return prev;
+      const updatedTravellers = [...prev.travellers];
+      const target = { ...updatedTravellers[travellerIdx] };
+      const currentVal = (target.visaChecklist as any)[key];
+      target.visaChecklist = { ...target.visaChecklist, [key]: !currentVal };
+      updatedTravellers[travellerIdx] = target;
+      return { ...prev, travellers: updatedTravellers };
     });
   };
 
-  // ── Computed ──────────────────────────────────────────────────────────────
+  // ── Add Traveller Handler ───────────────────────────────────────────────────
+  const handleAddTravellersSubmit = () => {
+    if (!client) return;
+    const memberIdsToAdd = Object.keys(selectedMemberIds).filter(id => selectedMemberIds[id]);
+    if (memberIdsToAdd.length === 0) return;
 
-  const totalNet = lead.proposalItems.reduce((s, i) => s + i.netCost, 0);
-  const totalSelling = lead.proposalItems.reduce((s, i) => s + i.sellingPrice, 0);
-  const margin = totalSelling > 0 ? (((totalSelling - totalNet) / totalSelling) * 100).toFixed(1) : '0.0';
-  const totalGuests = lead.guestDetails.adults + lead.guestDetails.children + lead.guestDetails.infants;
+    const existingMemberIds = lead.travellers.map(t => t.memberId);
+    const newTravellers: Traveller[] = memberIdsToAdd
+      .filter(id => !existingMemberIds.includes(id))
+      .map(memberId => ({
+        memberId,
+        status: travellerStatusSelect,
+        visaChecklist: { passportCollected: false, photosCollected: false, formsFilled: false, submittedToEmbassy: false, approved: false }
+      }));
 
-  const hasVisa = lead.categories.includes('Visa');
+    if (newTravellers.length === 0) {
+      setShowAddTravellerModal(false);
+      return;
+    }
 
-  const visaSteps: { key: keyof VisaTracker; label: string; description: string }[] = [
-    { key: 'passportCollected', label: 'Passport Collected', description: 'Original passport received from client' },
-    { key: 'photosCollected', label: 'Photos Collected', description: 'Passport-size photos received (2 per pax)' },
-    { key: 'formsFilled', label: 'Application Forms Filled', description: 'All embassy forms completed and signed' },
-    { key: 'submittedToEmbassy', label: 'Submitted to Embassy / VFS', description: 'Application submitted for processing' },
-    { key: 'approved', label: 'Visa Approved', description: 'Visa stamped and returned to client' },
-  ];
+    const addedMemberNames = newTravellers
+      .map(t => getMemberById(client, t.memberId)?.name)
+      .filter(Boolean)
+      .join(', ');
 
-  const isOverdue = lead.followUpDate && new Date(lead.followUpDate) < new Date();
+    setLead(prev => prev ? {
+      ...prev,
+      travellers: [...prev.travellers, ...newTravellers],
+      timeline: [{
+        id: `T${Date.now()}`,
+        type: 'traveller_added',
+        description: `Added traveller(s): ${addedMemberNames} (${travellerStatusSelect})`,
+        timestamp: new Date().toISOString(),
+        actor: 'Liam Smith'
+      }, ...prev.timeline]
+    } : prev);
 
-  const handleCopyLink = () => {
-    const url = `${window.location.origin}/proposal/${lead.id}`;
-    navigator.clipboard.writeText(url);
-    setLinkGenerated(true);
-    setTimeout(() => setLinkGenerated(false), 3000);
+    setSelectedMemberIds({});
+    setShowAddTravellerModal(false);
   };
 
-  // ── Render ────────────────────────────────────────────────────────────────
+  // ── Add Proposal Item Handler ───────────────────────────────────────────────
+  const handleAddProposalItemSubmit = () => {
+    if (!newProposalItem.description.trim() || !newProposalItem.sellingPrice) return;
+
+    const item: ProposalItem = {
+      id: `P${Date.now()}`,
+      type: newProposalItem.type,
+      description: newProposalItem.description.trim(),
+      supplier: newProposalItem.supplier.trim() || 'Direct',
+      netCost: Number(newProposalItem.netCost) || 0,
+      sellingPrice: Number(newProposalItem.sellingPrice) || 0,
+    };
+
+    setLead(prev => prev ? {
+      ...prev,
+      proposalItems: [...prev.proposalItems, item],
+      timeline: [{
+        id: `T${Date.now()}`,
+        type: 'proposal_item',
+        description: `Added proposal item: "${item.description}" (${formatINR(item.sellingPrice)})`,
+        timestamp: new Date().toISOString(),
+        actor: 'Liam Smith'
+      }, ...prev.timeline]
+    } : prev);
+
+    setNewProposalItem({
+      description: '',
+      type: 'Flight',
+      supplier: '',
+      netCost: '',
+      sellingPrice: '',
+    });
+    setShowAddProposalModal(false);
+  };
+
+  // ── Delete Proposal Item Handler ────────────────────────────────────────────
+  const handleDeleteProposalItem = (itemId: string) => {
+    const targetItem = lead.proposalItems.find(i => i.id === itemId);
+    setLead(prev => prev ? {
+      ...prev,
+      proposalItems: prev.proposalItems.filter(i => i.id !== itemId),
+      timeline: [{
+        id: `T${Date.now()}`,
+        type: 'proposal_item',
+        description: `Removed proposal item: "${targetItem?.description || 'Item'}"`,
+        timestamp: new Date().toISOString(),
+        actor: 'Liam Smith'
+      }, ...prev.timeline]
+    } : prev);
+  };
+
+  const handleCopyPublicLink = () => {
+    const url = `${window.location.origin}/proposal/${lead.id}`;
+    navigator.clipboard.writeText(url).then(() => {
+      setIsCopied(true);
+      setTimeout(() => setIsCopied(false), 2000);
+      setLead(prev => prev ? {
+        ...prev,
+        timeline: [{
+          id: `T${Date.now()}`,
+          type: 'link_shared',
+          description: `Copied public proposal link to clipboard`,
+          timestamp: new Date().toISOString(),
+          actor: 'Liam Smith'
+        }, ...prev.timeline]
+      } : prev);
+    });
+  };
+
+  const handleAddVoucherSubmit = () => {
+    if (!newVoucher.supplier.trim() || !newVoucher.referenceNumber.trim()) return;
+
+    const voucher: BookingVoucher = {
+      id: `V${Date.now()}`,
+      type: newVoucher.type,
+      supplier: newVoucher.supplier.trim(),
+      referenceNumber: newVoucher.referenceNumber.trim(),
+      date: new Date().toISOString().split('T')[0],
+      notes: newVoucher.notes.trim(),
+    };
+
+    setLead(prev => prev ? {
+      ...prev,
+      bookingVouchers: [...prev.bookingVouchers, voucher],
+      timeline: [{
+        id: `T${Date.now()}`,
+        type: 'voucher_added',
+        description: `Added booking voucher for ${voucher.type} (${voucher.referenceNumber})`,
+        timestamp: new Date().toISOString(),
+        actor: 'Liam Smith'
+      }, ...prev.timeline]
+    } : prev);
+
+    setNewVoucher({ type: 'Flight', supplier: '', referenceNumber: '', notes: '' });
+    setShowAddVoucherModal(false);
+  };
+
+  const handleDeleteVoucher = (voucherId: string) => {
+    const targetVoucher = lead.bookingVouchers.find(v => v.id === voucherId);
+    setLead(prev => prev ? {
+      ...prev,
+      bookingVouchers: prev.bookingVouchers.filter(v => v.id !== voucherId),
+      timeline: [{
+        id: `T${Date.now()}`,
+        type: 'voucher_added',
+        description: `Removed booking voucher: ${targetVoucher?.referenceNumber || 'Voucher'}`,
+        timestamp: new Date().toISOString(),
+        actor: 'Liam Smith'
+      }, ...prev.timeline]
+    } : prev);
+  };
+
+  const handleAddInvoiceSubmit = () => {
+    if (!newInvoice.description.trim() || !newInvoice.amount) return;
+
+    const invoice: LeadInvoice = {
+      id: `INV${Date.now()}`,
+      description: newInvoice.description.trim(),
+      amount: Number(newInvoice.amount) || 0,
+      status: newInvoice.status,
+      date: new Date().toISOString().split('T')[0],
+      dueDate: newInvoice.dueDate || new Date().toISOString().split('T')[0],
+    };
+
+    setLead(prev => prev ? {
+      ...prev,
+      invoices: [...prev.invoices, invoice],
+      timeline: [{
+        id: `T${Date.now()}`,
+        type: 'invoice_added',
+        description: `Generated invoice: ${invoice.description} for ${formatINR(invoice.amount)}`,
+        timestamp: new Date().toISOString(),
+        actor: 'Liam Smith'
+      }, ...prev.timeline]
+    } : prev);
+
+    setNewInvoice({ description: '', amount: '', status: 'Draft', dueDate: '' });
+    setShowAddInvoiceModal(false);
+  };
+
+  const handleDeleteInvoice = (invoiceId: string) => {
+    const targetInvoice = lead.invoices.find(i => i.id === invoiceId);
+    setLead(prev => prev ? {
+      ...prev,
+      invoices: prev.invoices.filter(i => i.id !== invoiceId),
+      timeline: [{
+        id: `T${Date.now()}`,
+        type: 'invoice_added',
+        description: `Deleted invoice: ${targetInvoice?.description || 'Invoice'}`,
+        timestamp: new Date().toISOString(),
+        actor: 'Liam Smith'
+      }, ...prev.timeline]
+    } : prev);
+  };
 
   return (
-    <div className="space-y-6 pb-12">
-      {/* ── Page Header ─────────────────────────────────────────────────── */}
-      <div>
-        <button onClick={() => router.back()} className="flex items-center text-xs text-blue-600 hover:text-blue-800 font-semibold mb-4 transition-colors">
-          <ArrowLeft className="w-3.5 h-3.5 mr-1.5" /> Back to Leads
-        </button>
-
-        <div className="flex flex-col md:flex-row md:items-start justify-between gap-4">
-          <div className="flex-1">
-            <div className="flex items-center gap-3 flex-wrap">
-              <h1 className="text-2xl font-bold text-slate-900">{lead.name}</h1>
-              {/* Status selector */}
-              <div className="relative group">
-                <button className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold uppercase tracking-wider ${STATUS_COLORS[lead.status]}`}>
-                  {lead.status} <ChevronDown className="w-3 h-3" />
-                </button>
-                <div className="absolute top-full left-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-xl z-10 min-w-[180px] py-1 hidden group-hover:block">
-                  {ALL_STATUSES.map(s => (
-                    <button key={s} onClick={() => updateStatus(s)}
-                      className={`w-full text-left px-4 py-2 text-xs font-semibold hover:bg-slate-50 flex items-center gap-2 ${lead.status === s ? 'text-blue-600' : 'text-slate-700'}`}>
-                      {lead.status === s && <Check className="w-3 h-3" />}
-                      {lead.status !== s && <span className="w-3" />}
-                      {s}
-                    </button>
-                  ))}
-                </div>
-              </div>
+    <div className="space-y-6 text-left">
+      {/* Header */}
+      <div className="flex items-start justify-between gap-4">
+        <div className="flex items-start gap-3">
+          <Link href="/agents/leads" className="mt-1 p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors">
+            <ArrowLeft className="w-4 h-4" />
+          </Link>
+          <div>
+            <div className="flex items-center gap-2 mb-0.5">
+              <h1 className="text-xl font-bold text-slate-900">{client?.name || 'Unknown Client'}</h1>
+              <LeadStatusBadge status={lead.status} />
             </div>
-
-            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-2 text-sm text-slate-600">
-              <span className="flex items-center"><Phone className="w-3.5 h-3.5 mr-1.5" />{lead.countryCode} {lead.phone}</span>
-              <span className="flex items-center"><Mail className="w-3.5 h-3.5 mr-1.5" />{lead.email}</span>
-              <span className="flex items-center"><MapPin className="w-3.5 h-3.5 mr-1.5" />{lead.destination}</span>
-            </div>
-
-            <div className="flex flex-wrap gap-1.5 mt-3">
-              {lead.categories.map(cat => (
-                <span key={cat} className="px-2 py-0.5 bg-blue-50 text-blue-700 text-[10px] font-bold rounded-full uppercase tracking-wider">
-                  {CATEGORY_ICONS[cat]} {cat}
-                </span>
-              ))}
+            <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+              <InfoBadge icon={Globe} text={lead.source} />
+              <InfoBadge icon={Calendar} text={lead.date} />
             </div>
           </div>
-
-          {/* Follow-up Date */}
-          <div className={`flex-shrink-0 p-4 rounded-xl border ${isOverdue ? 'bg-red-50 border-red-200' : 'bg-slate-50 border-slate-200'}`}>
-            <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">Follow-up Date</p>
-            {editingFollowUp ? (
-              <div className="flex gap-2 items-center">
-                <Input type="date" defaultValue={lead.followUpDate}
-                  onChange={e => updateFollowUp(e.target.value)} className="h-8 text-xs w-36" />
-                <button onClick={() => setEditingFollowUp(false)} className="text-blue-600 hover:text-blue-700">
-                  <Check className="w-4 h-4" />
-                </button>
-              </div>
-            ) : (
-              <div className="flex items-center gap-2">
-                <p className={`text-sm font-bold ${isOverdue ? 'text-red-700' : 'text-slate-900'}`}>
-                  {lead.followUpDate || 'Not set'}
-                  {isOverdue && <span className="ml-2 text-[10px] font-bold text-red-600 uppercase">Overdue</span>}
-                </p>
-                <button onClick={() => setEditingFollowUp(true)} className="text-slate-400 hover:text-blue-600 transition-colors">
-                  <Edit2 className="w-3 h-3" />
-                </button>
-              </div>
-            )}
-          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <Button onClick={() => setShowUpdateStatusModal(true)} size="sm">
+            <Edit className="w-3.5 h-3.5 mr-1" /> Update Status
+          </Button>
         </div>
       </div>
 
-      {/* ── Section A: Lead Summary ──────────────────────────────────────── */}
-      <Card>
-        <CardHeader className="flex flex-row items-center border-b border-slate-100 pb-4">
-          <CardTitle className="text-sm font-bold text-slate-900 flex items-center">
-            <ClipboardList className="w-4 h-4 mr-2 text-blue-600" /> Lead Summary
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="p-6">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <div className="p-3 bg-slate-50 rounded-lg border border-slate-100">
-              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1 flex items-center gap-1"><Calendar className="w-3 h-3" /> Travel Dates</p>
-              <p className="text-sm font-bold text-slate-900">{lead.travelDateFrom || '–'}</p>
-              <p className="text-xs text-slate-500">to {lead.travelDateTo || '–'}</p>
+      {/* Navigation Tabs (Without count badges) */}
+      <div className="border-b border-slate-200">
+        <nav className="flex items-center gap-6 px-1">
+          <button
+            onClick={() => setActiveTab('details')}
+            className={`py-3 text-sm font-medium border-b-2 transition-colors ${
+              activeTab === 'details'
+                ? 'border-blue-600 text-blue-600 font-bold'
+                : 'border-transparent text-slate-500 hover:text-slate-700'
+            }`}
+          >
+            Trip Details
+          </button>
+
+          <button
+            onClick={() => setActiveTab('proposal')}
+            className={`py-3 text-sm font-medium border-b-2 transition-colors ${
+              activeTab === 'proposal'
+                ? 'border-blue-600 text-blue-600 font-bold'
+                : 'border-transparent text-slate-500 hover:text-slate-700'
+            }`}
+          >
+            Proposal & Costing
+          </button>
+
+          <button
+            onClick={() => setActiveTab('bookings')}
+            className={`py-3 text-sm font-medium border-b-2 transition-colors ${
+              activeTab === 'bookings'
+                ? 'border-blue-600 text-blue-600 font-bold'
+                : 'border-transparent text-slate-500 hover:text-slate-700'
+            }`}
+          >
+            Bookings & Vouchers
+          </button>
+
+          <button
+            onClick={() => setActiveTab('invoices')}
+            className={`py-3 text-sm font-medium border-b-2 transition-colors ${
+              activeTab === 'invoices'
+                ? 'border-blue-600 text-blue-600 font-bold'
+                : 'border-transparent text-slate-500 hover:text-slate-700'
+            }`}
+          >
+            Invoices
+          </button>
+
+          {/* Conditional Visa Checklist Tab */}
+          {hasVisaCategory && (
+            <button
+              onClick={() => setActiveTab('visa')}
+              className={`py-3 text-sm font-medium border-b-2 transition-colors flex items-center gap-1.5 ${
+                activeTab === 'visa'
+                  ? 'border-blue-600 text-blue-600 font-bold'
+                  : 'border-transparent text-slate-500 hover:text-slate-700'
+              }`}
+            >
+              <Shield className="w-3.5 h-3.5 text-blue-600" />
+              Visa Checklist
+            </button>
+          )}
+
+          <button
+            onClick={() => setActiveTab('timeline')}
+            className={`py-3 text-sm font-medium border-b-2 transition-colors ${
+              activeTab === 'timeline'
+                ? 'border-blue-600 text-blue-600 font-bold'
+                : 'border-transparent text-slate-500 hover:text-slate-700'
+            }`}
+          >
+            Timeline
+          </button>
+        </nav>
+      </div>
+
+      {/* Tab Contents */}
+      <div className="py-2">
+        {/* ===================================================================== */}
+        {/* TAB 1: TRIP DETAILS (Trip Info + Travellers + Trip Notes) */}
+        {/* ===================================================================== */}
+        {activeTab === 'details' && (
+          <div className="space-y-6">
+            {/* Top Grid: Info & Meta */}
+            <div className="grid grid-cols-1 gap-6">
+              <div className="space-y-6">
+                <Card>
+                  <CardHeader className="flex flex-row items-center justify-between pb-2">
+                    <CardTitle>Trip Information</CardTitle>
+                    <Button variant="ghost" size="xs"><Edit className="w-3.5 h-3.5 mr-1" /> Edit</Button>
+                  </CardHeader>
+                  <CardContent>
+                    <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-4">
+                      <div>
+                        <dt className="text-xs font-medium text-slate-500 mb-1">Destination</dt>
+                        <dd className="text-sm font-medium text-slate-900">{lead.destination}</dd>
+                      </div>
+                      <div>
+                        <dt className="text-xs font-medium text-slate-500 mb-1">Travel Dates</dt>
+                        <dd className="text-sm font-medium text-slate-900">{lead.travelDateFrom} to {lead.travelDateTo}</dd>
+                      </div>
+                      <div>
+                        <dt className="text-xs font-medium text-slate-500 mb-1">Budget</dt>
+                        <dd className="text-sm font-medium text-slate-900">{lead.budget || 'Not specified'}</dd>
+                      </div>
+                      <div>
+                        <dt className="text-xs font-medium text-slate-500 mb-1">Requirements & Categories</dt>
+                        <dd className="flex flex-wrap gap-1.5 mt-1">
+                          {lead.categories.map(c => (
+                            <Badge key={c} variant={c === 'Visa' ? 'blue' : 'slate'}>
+                              {c}
+                            </Badge>
+                          ))}
+                        </dd>
+                      </div>
+                    </dl>
+                  </CardContent>
+                </Card>
+
+                {lead.status === 'Lost' && (
+                  <div className="p-4 bg-red-50 border border-red-200 rounded-xl flex items-start gap-3">
+                    <AlertTriangle className="w-5 h-5 text-red-600 mt-0.5" />
+                    <div>
+                      <h4 className="text-sm font-bold text-red-900">Lead Lost</h4>
+                      <p className="text-sm text-red-700 mt-1">{lead.lostReason || 'No reason provided.'}</p>
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
-            <div className="p-3 bg-slate-50 rounded-lg border border-slate-100">
-              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1 flex items-center gap-1"><Users className="w-3 h-3" /> Guests</p>
-              <p className="text-sm font-bold text-slate-900">{totalGuests} Total</p>
-              <p className="text-xs text-slate-500">{lead.guestDetails.adults}A · {lead.guestDetails.children}C · {lead.guestDetails.infants}I</p>
-            </div>
-            <div className="p-3 bg-slate-50 rounded-lg border border-slate-100">
-              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1 flex items-center gap-1"><DollarSign className="w-3 h-3" /> Budget</p>
-              <p className="text-sm font-bold text-slate-900">{lead.budget || '–'}</p>
-            </div>
-            <div className="p-3 bg-slate-50 rounded-lg border border-slate-100">
-              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1 flex items-center gap-1"><MapPin className="w-3 h-3" /> Created</p>
-              <p className="text-sm font-bold text-slate-900">{lead.date}</p>
-              {lead.customerId && <p className="text-[10px] text-green-600 font-bold uppercase tracking-wider mt-0.5">Existing Customer</p>}
+
+            {/* Embedded Travellers Section */}
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between">
+                <div>
+                  <CardTitle className="flex items-center gap-2">
+                    <Users className="w-4 h-4 text-blue-600" />
+                    Travellers Manifest ({lead.travellers.length})
+                  </CardTitle>
+                  <p className="text-xs text-slate-500 mt-0.5">Confirmed and tentative members registered for this trip</p>
+                </div>
+                <Button size="xs" variant="outline" onClick={() => setShowAddTravellerModal(true)}>
+                  <Plus className="w-3.5 h-3.5 mr-1" /> Add Member to Trip
+                </Button>
+              </CardHeader>
+              <CardContent className="p-0">
+                {lead.travellers.length > 0 ? (
+                  <div className="overflow-x-auto">
+                    <table className="data-table">
+                      <thead>
+                        <tr>
+                          <th>Name & Relation</th>
+                          <th>Status</th>
+                          <th>Age & Fare Class</th>
+                          <th>Special Alerts</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {lead.travellers.map((traveller, idx) => {
+                          const member = getMemberById(client!, traveller.memberId);
+                          if (!member) return null;
+                          const fareClass = deriveFareClass(member.dob, lead.travelDateFrom);
+                          const hasBday = hasBirthdayDuringTrip(member.dob, lead.travelDateFrom, lead.travelDateTo);
+                          const isDropped = traveller.status === 'Dropped';
+
+                          return (
+                            <tr key={idx} className={isDropped ? 'bg-slate-50/50 opacity-75' : ''}>
+                              <td>
+                                <div className={`font-semibold ${isDropped ? 'text-slate-500 line-through' : 'text-slate-900'}`}>{member.name}</div>
+                                <div className="text-xs text-slate-500 mt-0.5">{member.relation} {member.dob && `· DOB: ${member.dob}`}</div>
+                              </td>
+                              <td>
+                                <TravellerStatusBadge status={traveller.status} />
+                                {isDropped && traveller.dropReason && (
+                                  <div className="text-[10px] text-slate-500 mt-1 max-w-[120px] truncate" title={traveller.dropReason}>{traveller.dropReason}</div>
+                                )}
+                              </td>
+                              <td>
+                                <div className="text-sm font-medium text-slate-700">{fareClass}</div>
+                              </td>
+                              <td>
+                                {hasBday && !isDropped ? (
+                                  <div className="inline-flex items-center gap-1 text-[11px] font-bold text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-md">
+                                    <Gift className="w-3.5 h-3.5 text-amber-600" /> Birthday occurs during trip!
+                                  </div>
+                                ) : (
+                                  <span className="text-xs text-slate-400">Standard</span>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <div className="p-6 text-center text-sm text-slate-500">
+                    No travellers assigned to this lead yet. Click "Add Member to Trip" above.
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Embedded Trip Notes Section */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <MessageSquare className="w-4 h-4 text-blue-600" />
+                  Trip Notes & Internal Comments ({lead.notes.length})
+                </CardTitle>
+                <p className="text-xs text-slate-500 mt-0.5">All notes and communication records captured for this trip.</p>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                <form onSubmit={handlePostNote} className="flex gap-3">
+                  <Input 
+                    placeholder="Add a new internal note or call summary for this trip..." 
+                    value={newNoteText}
+                    onChange={e => setNewNoteText(e.target.value)}
+                    className="flex-1" 
+                  />
+                  <Button type="submit" size="sm" disabled={!newNoteText.trim()}>
+                    <Send className="w-3.5 h-3.5" /> Post Note
+                  </Button>
+                </form>
+
+                <div className="space-y-3 pt-2">
+                  {lead.notes.map(note => (
+                    <div key={note.id} className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-1">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-slate-900">{note.author}</span>
+                        <span className="text-[11px] text-slate-400">{new Date(note.timestamp).toLocaleString()}</span>
+                      </div>
+                      <p className="text-xs text-slate-700 whitespace-pre-wrap leading-relaxed">{note.text}</p>
+                    </div>
+                  ))}
+                  {lead.notes.length === 0 && (
+                    <div className="p-6 text-center text-xs text-slate-400 border border-dashed border-slate-200 rounded-xl">
+                      No trip notes recorded yet. Post a note above to record client interactions.
+                    </div>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        )}
+
+        {/* ===================================================================== */}
+        {/* TAB 2: PROPOSAL & COSTING (Interactive Proposal Builder) */}
+        {/* ===================================================================== */}
+        {activeTab === 'proposal' && (
+          <div className="space-y-6">
+            <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+              <div className="lg:col-span-3 space-y-6">
+                <Card>
+                  <CardHeader className="flex flex-row items-center justify-between pb-2">
+                    <CardTitle>Proposal Items</CardTitle>
+                    <div className="flex gap-2">
+                      <Button size="xs" variant="outline" onClick={handleCopyPublicLink}>
+                        {isCopied ? <CheckCircle2 className="w-3.5 h-3.5 mr-1 text-emerald-600" /> : <LinkIcon className="w-3.5 h-3.5 mr-1" />}
+                        {isCopied ? 'Copied!' : 'Copy Public Link'}
+                      </Button>
+                      <Button size="xs" onClick={() => setShowAddProposalModal(true)}>
+                        <Plus className="w-3.5 h-3.5 mr-1" /> Add Proposal Item
+                      </Button>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="p-0">
+                    <table className="data-table">
+                      <thead>
+                        <tr>
+                          <th>Description</th>
+                          <th>Type & Supplier</th>
+                          <th className="text-right">Net Cost</th>
+                          <th className="text-right">Selling Price</th>
+                          <th className="text-right">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {lead.proposalItems.map(item => (
+                          <tr key={item.id}>
+                            <td className="font-semibold text-slate-900">{item.description}</td>
+                            <td>
+                              <div className="text-sm font-medium text-slate-700">{item.type}</div>
+                              <div className="text-xs text-slate-500">{item.supplier}</div>
+                            </td>
+                            <td className="text-right text-sm font-mono text-slate-600">{formatINR(item.netCost)}</td>
+                            <td className="text-right text-sm font-bold text-slate-900">{formatINR(item.sellingPrice)}</td>
+                            <td className="text-right">
+                              <button 
+                                onClick={() => handleDeleteProposalItem(item.id)}
+                                className="p-1.5 rounded hover:bg-red-50 text-slate-400 hover:text-red-600 transition-colors"
+                                title="Remove Proposal Item"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                        {lead.proposalItems.length === 0 && (
+                          <tr>
+                            <td colSpan={5} className="text-center py-8">
+                              <p className="text-sm text-slate-500">No items added to proposal yet.</p>
+                              <Button size="xs" variant="outline" className="mt-2" onClick={() => setShowAddProposalModal(true)}>
+                                <Plus className="w-3.5 h-3.5 mr-1" /> Add First Item
+                              </Button>
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </CardContent>
+                </Card>
+              </div>
+
+              <div className="space-y-6">
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Costing Summary</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-3">
+                      <div className="flex justify-between text-sm">
+                        <span className="text-slate-500">Total Net Cost</span>
+                        <span className="font-medium text-slate-900">{formatINR(totalNet)}</span>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-slate-500">Total Selling Price</span>
+                        <span className="font-bold text-slate-900">{formatINR(totalSelling)}</span>
+                      </div>
+                      <div className="pt-3 border-t border-slate-100 flex justify-between text-sm">
+                        <span className="text-slate-500">Estimated Profit</span>
+                        <span className="font-bold text-emerald-600">{formatINR(totalSelling - totalNet)}</span>
+                      </div>
+                      <div className="flex justify-between text-xs">
+                        <span className="text-slate-500">Margin</span>
+                        <span className="font-medium text-slate-700">{margin.toFixed(1)}%</span>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
             </div>
           </div>
-          {lead.guestDetails.specialRequirements && (
-            <div className="mt-4 p-3 bg-amber-50 border border-amber-100 rounded-lg">
-              <p className="text-[10px] font-bold text-amber-700 uppercase tracking-wider mb-0.5">Special Requirements</p>
-              <p className="text-sm text-slate-700">{lead.guestDetails.specialRequirements}</p>
-            </div>
-          )}
-        </CardContent>
-      </Card>
+        )}
 
-      {/* ── Section B: Proposal Builder ─────────────────────────────────── */}
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between border-b border-slate-100 pb-4">
-          <CardTitle className="text-sm font-bold text-slate-900 flex items-center">
-            <FileText className="w-4 h-4 mr-2 text-purple-600" /> Proposal Builder
-          </CardTitle>
-          <Button size="sm" onClick={() => setShowAddItem(!showAddItem)}
-            className="bg-purple-600 hover:bg-purple-700 text-white text-xs font-semibold h-8 px-3">
-            <Plus className="w-3.5 h-3.5 mr-1" /> Add Item
-          </Button>
-        </CardHeader>
-        <CardContent className="p-0">
-          {/* Add Item form */}
-          {showAddItem && (
-            <div className="p-4 bg-purple-50 border-b border-purple-100 space-y-3">
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+        {/* ===================================================================== */}
+        {/* TAB 3: BOOKINGS & VOUCHERS */}
+        {/* ===================================================================== */}
+        {activeTab === 'bookings' && (
+          <div className="space-y-6">
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between pb-2">
                 <div>
-                  <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Type</label>
-                  <select value={newItem.type} onChange={e => setNewItem(p => ({ ...p, type: e.target.value as ProposalItem['type'] }))}
-                    className="w-full text-sm border border-slate-200 rounded-lg px-2 py-1.5 bg-white focus:ring-1 focus:ring-purple-500 focus:outline-none">
-                    {ITEM_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
-                  </select>
+                  <CardTitle className="flex items-center gap-2">
+                    <FileText className="w-5 h-5 text-blue-600" />
+                    Booking Vouchers
+                  </CardTitle>
+                  <p className="text-xs text-slate-500 mt-0.5">Manage confirmed bookings and vouchers for this trip.</p>
                 </div>
-                <div className="col-span-2 md:col-span-2">
-                  <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Description</label>
-                  <Input value={newItem.description} onChange={e => setNewItem(p => ({ ...p, description: e.target.value }))}
-                    placeholder="e.g., Mumbai–Dubai return (Economy)" className="h-9 text-sm" />
-                </div>
-                <div>
-                  <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Supplier</label>
-                  <Input value={newItem.supplier} onChange={e => setNewItem(p => ({ ...p, supplier: e.target.value }))}
-                    placeholder="e.g., Emirates" className="h-9 text-sm" />
-                </div>
-                <div>
-                  <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Net Cost (₹)</label>
-                  <Input type="number" value={newItem.netCost || ''} onChange={e => setNewItem(p => ({ ...p, netCost: +e.target.value }))}
-                    placeholder="0" className="h-9 text-sm" />
-                </div>
-                <div>
-                  <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Selling Price (₹)</label>
-                  <Input type="number" value={newItem.sellingPrice || ''} onChange={e => setNewItem(p => ({ ...p, sellingPrice: +e.target.value }))}
-                    placeholder="0" className="h-9 text-sm" />
-                </div>
-              </div>
-              <div className="flex justify-end gap-2">
-                <Button size="sm" variant="ghost" onClick={() => setShowAddItem(false)} className="h-8 text-xs text-slate-600">Cancel</Button>
-                <Button size="sm" onClick={addProposalItem} disabled={!newItem.description}
-                  className="h-8 text-xs bg-purple-600 hover:bg-purple-700 text-white font-semibold disabled:opacity-50">
-                  Add to Proposal
+                <Button size="xs" onClick={() => setShowAddVoucherModal(true)}>
+                  <Plus className="w-3.5 h-3.5 mr-1" /> Add Booking Voucher
                 </Button>
-              </div>
-            </div>
-          )}
-
-          {/* Items table */}
-          {lead.proposalItems.length > 0 ? (
-            <>
-              <table className="w-full text-sm text-left">
-                <thead className="bg-slate-50 border-b border-slate-100">
-                  <tr className="text-slate-400 font-medium text-[11px] uppercase tracking-wider">
-                    <th className="px-6 py-3">Type</th>
-                    <th className="px-6 py-3">Description</th>
-                    <th className="px-6 py-3">Supplier</th>
-                    <th className="px-6 py-3 text-right">Net Cost</th>
-                    <th className="px-6 py-3 text-right">Selling Price</th>
-                    <th className="px-6 py-3 text-right">Margin</th>
-                    <th className="px-6 py-3"></th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {lead.proposalItems.map(item => {
-                    const itemMargin = item.sellingPrice > 0 ? (((item.sellingPrice - item.netCost) / item.sellingPrice) * 100).toFixed(0) : '0';
-                    return (
-                      <tr key={item.id} className="hover:bg-slate-50 transition-colors">
-                        <td className="px-6 py-3">
-                          <span className="px-1.5 py-0.5 bg-purple-50 text-purple-700 text-[10px] font-bold rounded uppercase tracking-wider">{item.type}</span>
+              </CardHeader>
+              <CardContent className="p-0">
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th>Type & Supplier</th>
+                      <th>Reference / PNR</th>
+                      <th>Booking Date</th>
+                      <th>Notes</th>
+                      <th className="text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {lead.bookingVouchers.map(voucher => (
+                      <tr key={voucher.id}>
+                        <td>
+                          <div className="text-sm font-bold text-slate-900">{voucher.supplier}</div>
+                          <div className="text-xs text-slate-500">{voucher.type}</div>
                         </td>
-                        <td className="px-6 py-3 text-sm text-slate-900 font-medium">{item.description}</td>
-                        <td className="px-6 py-3 text-sm text-slate-500">{item.supplier}</td>
-                        <td className="px-6 py-3 text-sm text-right text-slate-600">₹{item.netCost.toLocaleString('en-IN')}</td>
-                        <td className="px-6 py-3 text-sm text-right font-bold text-slate-900">₹{item.sellingPrice.toLocaleString('en-IN')}</td>
-                        <td className="px-6 py-3 text-right">
-                          <span className={`text-xs font-bold ${Number(itemMargin) >= 15 ? 'text-green-600' : Number(itemMargin) >= 5 ? 'text-amber-600' : 'text-red-500'}`}>
-                            {itemMargin}%
-                          </span>
+                        <td className="font-mono text-sm font-semibold text-slate-700">
+                          {voucher.referenceNumber}
                         </td>
-                        <td className="px-6 py-3 text-right">
-                          <button onClick={() => removeProposalItem(item.id)} className="text-slate-300 hover:text-red-500 transition-colors">
-                            <Trash2 className="w-3.5 h-3.5" />
+                        <td className="text-sm text-slate-600">{voucher.date}</td>
+                        <td className="text-sm text-slate-500 max-w-[200px] truncate">
+                          {voucher.notes || '-'}
+                        </td>
+                        <td className="text-right">
+                          <button 
+                            onClick={() => handleDeleteVoucher(voucher.id)}
+                            className="p-1.5 rounded hover:bg-red-50 text-slate-400 hover:text-red-600 transition-colors"
+                            title="Delete Voucher"
+                          >
+                            <Trash2 className="w-4 h-4" />
                           </button>
                         </td>
                       </tr>
-                    );
-                  })}
-                </tbody>
-                <tfoot className="bg-slate-50 border-t-2 border-slate-200">
-                  <tr>
-                    <td colSpan={3} className="px-6 py-3 text-xs font-bold text-slate-700 uppercase tracking-wider">Total</td>
-                    <td className="px-6 py-3 text-sm text-right text-slate-600 font-bold">₹{totalNet.toLocaleString('en-IN')}</td>
-                    <td className="px-6 py-3 text-sm text-right font-bold text-green-700">₹{totalSelling.toLocaleString('en-IN')}</td>
-                    <td className="px-6 py-3 text-right">
-                      <span className={`text-sm font-bold ${Number(margin) >= 15 ? 'text-green-600' : 'text-amber-600'}`}>{margin}%</span>
-                    </td>
-                    <td />
-                  </tr>
-                </tfoot>
-              </table>
+                    ))}
+                    {lead.bookingVouchers.length === 0 && (
+                      <tr>
+                        <td colSpan={5} className="text-center py-8">
+                          <p className="text-sm text-slate-500">No booking vouchers uploaded yet.</p>
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </CardContent>
+            </Card>
+          </div>
+        )}
 
-              {/* Generate Link CTA */}
-              <div className="p-4 flex items-center justify-between border-t border-slate-100 bg-slate-50/50">
+        {/* ===================================================================== */}
+        {/* TAB 4: INVOICES */}
+        {/* ===================================================================== */}
+        {activeTab === 'invoices' && (
+          <div className="space-y-6">
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between pb-2">
                 <div>
-                  <p className="text-sm font-bold text-slate-900">Ready to share with client?</p>
-                  <p className="text-xs text-slate-500">Generate a shareable proposal link to send over WhatsApp or Email</p>
+                  <CardTitle className="flex items-center gap-2">
+                    <FileText className="w-5 h-5 text-blue-600" />
+                    Trip Invoices
+                  </CardTitle>
+                  <p className="text-xs text-slate-500 mt-0.5">Track and generate invoices for this lead.</p>
                 </div>
-                <Button onClick={handleCopyLink}
-                  className={`h-9 px-4 text-xs font-semibold ${linkGenerated ? 'bg-green-600 hover:bg-green-700' : 'bg-blue-600 hover:bg-blue-700'} text-white`}>
-                  {linkGenerated ? <><Check className="w-3.5 h-3.5 mr-1.5" /> Link Copied!</> : <><LinkIcon className="w-3.5 h-3.5 mr-1.5" /> Generate & Copy Link</>}
+                <Button size="xs" onClick={() => setShowAddInvoiceModal(true)}>
+                  <Plus className="w-3.5 h-3.5 mr-1" /> Generate Invoice
                 </Button>
-              </div>
-            </>
-          ) : (
-            <div className="p-10 text-center">
-              <FileText className="w-8 h-8 text-slate-300 mx-auto mb-2" />
-              <p className="text-sm text-slate-500 font-medium">No proposal items yet.</p>
-              <p className="text-xs text-slate-400 mt-0.5">Click "Add Item" above to start building the proposal.</p>
-            </div>
-          )}
-        </CardContent>
-      </Card>
+              </CardHeader>
+              <CardContent className="p-0">
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th>Invoice ID & Description</th>
+                      <th>Status</th>
+                      <th>Issue Date</th>
+                      <th>Due Date</th>
+                      <th className="text-right">Amount</th>
+                      <th className="text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {lead.invoices.map(invoice => (
+                      <tr key={invoice.id}>
+                        <td>
+                          <div className="text-sm font-bold text-slate-900">{invoice.id}</div>
+                          <div className="text-xs text-slate-500">{invoice.description}</div>
+                        </td>
+                        <td>
+                          <Badge variant={invoice.status === 'Paid' ? 'emerald' : invoice.status === 'Overdue' ? 'red' : invoice.status === 'Draft' ? 'slate' : 'blue'}>
+                            {invoice.status}
+                          </Badge>
+                        </td>
+                        <td className="text-sm text-slate-600">{invoice.date}</td>
+                        <td className="text-sm text-slate-600">{invoice.dueDate}</td>
+                        <td className="text-right font-mono font-bold text-slate-900">
+                          {formatINR(invoice.amount)}
+                        </td>
+                        <td className="text-right">
+                          <button 
+                            onClick={() => handleDeleteInvoice(invoice.id)}
+                            className="p-1.5 rounded hover:bg-red-50 text-slate-400 hover:text-red-600 transition-colors"
+                            title="Delete Invoice"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                    {lead.invoices.length === 0 && (
+                      <tr>
+                        <td colSpan={6} className="text-center py-8">
+                          <p className="text-sm text-slate-500">No invoices generated yet.</p>
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </CardContent>
+            </Card>
+          </div>
+        )}
 
-      {/* ── Section C: Visa Tracker (conditional) ───────────────────────── */}
-      {hasVisa && lead.visaTracker && (
-        <Card>
-          <CardHeader className="flex flex-row items-center border-b border-slate-100 pb-4">
-            <CardTitle className="text-sm font-bold text-slate-900 flex items-center">
-              🛂 <span className="ml-2">Visa Tracker</span>
-            </CardTitle>
-            <div className="ml-auto flex items-center gap-2">
-              {(() => {
-                const steps = Object.values(lead.visaTracker);
-                const done = steps.filter(Boolean).length;
+        {/* ===================================================================== */}
+        {/* TAB 5: VISA CHECKLIST (Rendered ONLY if category contains Visa) */}
+        {/* ===================================================================== */}
+        {activeTab === 'visa' && hasVisaCategory && (
+          <div className="space-y-6">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Shield className="w-5 h-5 text-blue-600" />
+                  Per-Traveller Visa Document Checklist
+                </CardTitle>
+                <p className="text-xs text-slate-500">
+                  Track visa application stages for each confirmed traveller on this trip.
+                </p>
+              </CardHeader>
+              <CardContent className="p-0">
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th>Traveller Name</th>
+                      <th>Status</th>
+                      <th className="w-80">Visa Steps & Checkmarks</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {lead.travellers.map((traveller, idx) => {
+                      const member = getMemberById(client!, traveller.memberId);
+                      if (!member) return null;
+                      const isDropped = traveller.status === 'Dropped';
+
+                      return (
+                        <tr key={idx} className={isDropped ? 'bg-slate-50/50 opacity-75' : ''}>
+                          <td>
+                            <div className="font-semibold text-slate-900">{member.name}</div>
+                            <div className="text-xs text-slate-500">{member.relation}</div>
+                          </td>
+                          <td>
+                            <TravellerStatusBadge status={traveller.status} />
+                          </td>
+                          <td>
+                            {!isDropped ? (
+                              <div className="grid grid-cols-5 gap-1.5">
+                                {[
+                                  { label: 'Passport Collected', key: 'passportCollected', val: traveller.visaChecklist.passportCollected },
+                                  { label: 'Photos Collected', key: 'photosCollected', val: traveller.visaChecklist.photosCollected },
+                                  { label: 'Forms Filled', key: 'formsFilled', val: traveller.visaChecklist.formsFilled },
+                                  { label: 'Submitted to Embassy', key: 'submittedToEmbassy', val: traveller.visaChecklist.submittedToEmbassy },
+                                  { label: 'Visa Approved', key: 'approved', val: traveller.visaChecklist.approved }
+                                ].map(item => (
+                                  <button
+                                    key={item.key}
+                                    type="button"
+                                    onClick={() => handleToggleVisaChecklist(idx, item.key)}
+                                    title={`${item.label}: ${item.val ? 'Completed' : 'Click to mark complete'}`}
+                                    className={`h-8 rounded-lg flex flex-col items-center justify-center transition-all ${
+                                      item.val
+                                        ? 'bg-emerald-100 text-emerald-800 font-bold border border-emerald-300'
+                                        : 'bg-slate-100 text-slate-400 hover:bg-slate-200 border border-slate-200'
+                                    }`}
+                                  >
+                                    {item.val ? <CheckCircle2 className="w-4 h-4 text-emerald-600" /> : <div className="w-2 h-2 rounded-full bg-slate-300" />}
+                                    <span className="text-[9px] mt-0.5 truncate max-w-[50px]">{item.label.split(' ')[0]}</span>
+                                  </button>
+                                ))}
+                              </div>
+                            ) : (
+                              <span className="text-xs text-slate-400">Dropped traveller</span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </CardContent>
+            </Card>
+          </div>
+        )}
+
+        {/* ===================================================================== */}
+        {/* TAB 6: TIMELINE */}
+        {/* ===================================================================== */}
+        {activeTab === 'timeline' && (
+          <div className="max-w-2xl py-4">
+            <div className="space-y-6">
+              {lead.timeline.map((event, idx) => {
+                const isLast = idx === lead.timeline.length - 1;
                 return (
-                  <>
-                    <div className="flex gap-1">
-                      {steps.map((v, i) => (
-                        <div key={i} className={`w-5 h-1.5 rounded-full ${v ? 'bg-green-500' : 'bg-slate-200'}`} />
-                      ))}
+                  <div key={event.id} className="relative flex gap-4">
+                    {!isLast && <div className="absolute left-[15px] top-[30px] bottom-[-24px] w-px bg-slate-200" />}
+                    <div className="w-8 h-8 rounded-full bg-slate-100 border-2 border-white flex items-center justify-center flex-shrink-0 z-10 text-slate-500">
+                      {event.type === 'status_change' && <CheckCircle2 className="w-4 h-4 text-blue-600" />}
+                      {event.type === 'traveller_added' && <Plus className="w-4 h-4" />}
+                      {event.type === 'traveller_dropped' && <Trash2 className="w-4 h-4" />}
+                      {event.type === 'link_shared' && <LinkIcon className="w-4 h-4" />}
+                      {event.type === 'created' && <FileText className="w-4 h-4" />}
+                      {event.type === 'note_added' && <MessageSquare className="w-4 h-4" />}
+                      {event.type === 'reassigned' && <Users className="w-4 h-4" />}
+                      {event.type === 'proposal_item' && <DollarSign className="w-4 h-4" />}
                     </div>
-                    <span className="text-[11px] font-bold text-slate-500">{done}/5 steps</span>
-                  </>
+                    <div>
+                      <p className="text-sm font-medium text-slate-900">{event.description}</p>
+                      <p className="text-xs text-slate-500 mt-0.5">
+                        {new Date(event.timestamp).toLocaleString()} · by {event.actor}
+                      </p>
+                    </div>
+                  </div>
                 );
-              })()}
+              })}
             </div>
-          </CardHeader>
-          <CardContent className="p-4 space-y-2">
-            {visaSteps.map((step, idx) => {
-              const done = lead.visaTracker![step.key];
-              return (
-                <button key={step.key} onClick={() => toggleVisaStep(step.key)}
-                  className={`w-full flex items-center gap-4 p-4 rounded-xl border transition-all text-left ${
-                    done ? 'bg-green-50 border-green-200' : 'bg-white border-slate-200 hover:bg-slate-50'
-                  }`}>
-                  <div className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm ${
-                    done ? 'bg-green-500 text-white' : 'bg-slate-100 text-slate-500'
-                  }`}>
-                    {done ? <Check className="w-4 h-4" /> : idx + 1}
-                  </div>
-                  <div className="flex-1">
-                    <p className={`text-sm font-bold ${done ? 'text-green-800' : 'text-slate-700'}`}>{step.label}</p>
-                    <p className="text-xs text-slate-500 mt-0.5">{step.description}</p>
-                  </div>
-                  {done
-                    ? <CheckSquare className="w-5 h-5 text-green-500 flex-shrink-0" />
-                    : <Square className="w-5 h-5 text-slate-300 flex-shrink-0" />
-                  }
-                </button>
-              );
-            })}
-            {lead.visaTracker.approved && (
-              <div className="mt-2 p-3 bg-green-100 border border-green-300 rounded-xl text-center">
-                <p className="text-sm font-bold text-green-800">✅ Visa Approved — All steps complete!</p>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      )}
+          </div>
+        )}
+      </div>
 
-      {/* ── Section D: Activity & Notes Log ─────────────────────────────── */}
-      <Card>
-        <CardHeader className="flex flex-row items-center border-b border-slate-100 pb-4">
-          <CardTitle className="text-sm font-bold text-slate-900 flex items-center">
-            <MessageSquare className="w-4 h-4 mr-2 text-slate-500" /> Activity & Notes
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="p-4">
-          {/* Add note */}
-          <div className="flex gap-3 mb-6">
-            <div className="w-8 h-8 flex-shrink-0 rounded-full bg-blue-100 flex items-center justify-center text-blue-700 font-bold text-xs">LS</div>
-            <div className="flex-1 space-y-2">
-              <textarea value={noteText} onChange={e => setNoteText(e.target.value)}
-                placeholder="Add a note, log a call, or record any update..."
-                className="w-full p-3 text-sm border border-slate-200 rounded-xl focus:ring-1 focus:ring-blue-600 focus:outline-none bg-white min-h-[80px] resize-none"
-                onKeyDown={e => { if (e.key === 'Enter' && e.ctrlKey) addNote(); }}
-              />
-              <div className="flex justify-between items-center">
-                <span className="text-[10px] text-slate-400">Ctrl+Enter to submit</span>
-                <Button size="sm" onClick={addNote} disabled={!noteText.trim()}
-                  className="h-8 px-4 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold disabled:opacity-50">
-                  <Send className="w-3 h-3 mr-1.5" /> Add Note
-                </Button>
+      {/* ===================================================================== */}
+      {/* MODAL 1: ADD TRAVELLER TO TRIP MODAL */}
+      {/* ===================================================================== */}
+      <Modal open={showAddTravellerModal} onClose={() => setShowAddTravellerModal(false)}>
+        <ModalHeader onClose={() => setShowAddTravellerModal(false)}>
+          <ModalTitle>Add Member to Trip Manifest</ModalTitle>
+          <ModalDescription>Select family or team members from {client?.name} to register for this trip.</ModalDescription>
+        </ModalHeader>
+        <ModalBody>
+          <div className="space-y-4">
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1.5">Select Registration Status</label>
+              <Select value={travellerStatusSelect} onChange={e => setTravellerStatusSelect(e.target.value as TravellerStatus)}>
+                <option value="Confirmed">Confirmed</option>
+                <option value="Tentative">Tentative</option>
+              </Select>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-2">Available Members ({client?.members.filter(m => m.isActive).length})</label>
+              <div className="border border-slate-200 rounded-xl overflow-hidden divide-y divide-slate-100 max-h-60 overflow-y-auto">
+                {client?.members.filter(m => m.isActive).map(member => {
+                  const isAlreadyAdded = lead.travellers.some(t => t.memberId === member.id);
+                  const isSelected = !!selectedMemberIds[member.id];
+
+                  return (
+                    <div 
+                      key={member.id} 
+                      onClick={() => {
+                        if (!isAlreadyAdded) {
+                          setSelectedMemberIds(p => ({ ...p, [member.id]: !p[member.id] }));
+                        }
+                      }}
+                      className={`p-3 flex items-center justify-between ${
+                        isAlreadyAdded ? 'bg-slate-50 opacity-60 cursor-not-allowed' : 'hover:bg-slate-50 cursor-pointer'
+                      }`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className={`w-5 h-5 rounded border flex items-center justify-center ${
+                          isAlreadyAdded ? 'bg-slate-200 border-slate-300' : isSelected ? 'bg-blue-600 border-blue-600 text-white' : 'border-slate-300 bg-white'
+                        }`}>
+                          {isAlreadyAdded && <Check className="w-3 h-3 text-slate-500" />}
+                          {!isAlreadyAdded && isSelected && <Check className="w-3.5 h-3.5" />}
+                        </div>
+                        <div>
+                          <p className="text-sm font-semibold text-slate-900">{member.name}</p>
+                          <p className="text-xs text-slate-500">{member.relation} {member.dob && `· DOB: ${member.dob}`}</p>
+                        </div>
+                      </div>
+                      {isAlreadyAdded && (
+                        <span className="text-[11px] font-semibold text-slate-500">Already Registered</span>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             </div>
           </div>
+        </ModalBody>
+        <ModalFooter>
+          <Button variant="ghost" size="sm" onClick={() => setShowAddTravellerModal(false)}>Cancel</Button>
+          <Button size="sm" onClick={handleAddTravellersSubmit} disabled={Object.values(selectedMemberIds).filter(Boolean).length === 0}>
+            Add Selected Members
+          </Button>
+        </ModalFooter>
+      </Modal>
 
-          {/* Notes list */}
-          {lead.notes.length > 0 ? (
-            <div className="space-y-3">
-              {lead.notes.map(note => (
-                <div key={note.id} className="flex gap-3">
-                  <div className="flex-shrink-0 flex flex-col items-center">
-                    <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-slate-500 font-bold text-xs">
-                      {note.author.split(' ').map(n => n[0]).join('')}
-                    </div>
-                    <div className="w-px flex-1 bg-slate-100 mt-2" />
-                  </div>
-                  <div className="flex-1 pb-4">
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className="text-xs font-bold text-slate-900">{note.author}</span>
-                      <span className="text-[10px] text-slate-400 flex items-center gap-0.5">
-                        <Clock className="w-2.5 h-2.5" /> {formatTimestamp(note.timestamp)}
-                      </span>
-                    </div>
-                    <p className="text-sm text-slate-700 leading-relaxed">{note.text}</p>
-                  </div>
-                </div>
-              ))}
+      {/* ===================================================================== */}
+      {/* MODAL 2: ADD PROPOSAL ITEM & COSTING MODAL */}
+      {/* ===================================================================== */}
+      <Modal open={showAddProposalModal} onClose={() => setShowAddProposalModal(false)}>
+        <ModalHeader onClose={() => setShowAddProposalModal(false)}>
+          <ModalTitle>Add Proposal Line Item & Costing</ModalTitle>
+          <ModalDescription>Enter supplier net cost and client selling price for this travel component.</ModalDescription>
+        </ModalHeader>
+        <ModalBody>
+          <div className="space-y-4">
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">Service Description *</label>
+              <Input
+                type="text"
+                placeholder="e.g. 5 Nights Stay at Anantara Bangkok Resort & Spa"
+                value={newProposalItem.description}
+                onChange={e => setNewProposalItem({ ...newProposalItem, description: e.target.value })}
+              />
             </div>
-          ) : (
-            <div className="text-center py-6">
-              <MessageSquare className="w-6 h-6 text-slate-300 mx-auto mb-1" />
-              <p className="text-sm text-slate-400">No notes yet. Add the first one above.</p>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">Component Type *</label>
+                <Select
+                  value={newProposalItem.type}
+                  onChange={e => setNewProposalItem({ ...newProposalItem, type: e.target.value as any })}
+                >
+                  <option value="Flight">Flight</option>
+                  <option value="Hotel">Hotel</option>
+                  <option value="Transfer">Transfer</option>
+                  <option value="Activity">Activity</option>
+                  <option value="Visa Fee">Visa Fee</option>
+                  <option value="Miscellaneous">Miscellaneous</option>
+                </Select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">Supplier / Vendor Name</label>
+                <Input
+                  type="text"
+                  placeholder="e.g. Agoda / Direct Hotel"
+                  value={newProposalItem.supplier}
+                  onChange={e => setNewProposalItem({ ...newProposalItem, supplier: e.target.value })}
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">Net Supplier Cost (₹)</label>
+                <Input
+                  type="number"
+                  placeholder="e.g. 45000"
+                  value={newProposalItem.netCost}
+                  onChange={e => setNewProposalItem({ ...newProposalItem, netCost: e.target.value })}
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">Client Selling Price (₹) *</label>
+                <Input
+                  type="number"
+                  placeholder="e.g. 58000"
+                  value={newProposalItem.sellingPrice}
+                  onChange={e => setNewProposalItem({ ...newProposalItem, sellingPrice: e.target.value })}
+                />
+              </div>
             </div>
-          )}
-        </CardContent>
-      </Card>
+
+            {/* Calculated Preview */}
+            {newProposalItem.sellingPrice && (
+              <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl flex items-center justify-between text-xs font-semibold">
+                <span>Estimated Item Profit:</span>
+                <span className="text-emerald-700 font-bold">
+                  {formatINR((Number(newProposalItem.sellingPrice) || 0) - (Number(newProposalItem.netCost) || 0))}
+                </span>
+              </div>
+            )}
+          </div>
+        </ModalBody>
+        <ModalFooter>
+          <Button variant="ghost" size="sm" onClick={() => setShowAddProposalModal(false)}>Cancel</Button>
+          <Button size="sm" onClick={handleAddProposalItemSubmit} disabled={!newProposalItem.description.trim() || !newProposalItem.sellingPrice}>
+            Add Line Item
+          </Button>
+        </ModalFooter>
+      </Modal>
+
+      {/* ===================================================================== */}
+      {/* MODAL 3: ADD BOOKING VOUCHER MODAL */}
+      {/* ===================================================================== */}
+      <Modal open={showAddVoucherModal} onClose={() => setShowAddVoucherModal(false)}>
+        <ModalHeader onClose={() => setShowAddVoucherModal(false)}>
+          <ModalTitle>Add Booking Voucher</ModalTitle>
+          <ModalDescription>Record confirmed booking details (PNR, Ticket numbers, Hotel conf) for this trip.</ModalDescription>
+        </ModalHeader>
+        <ModalBody>
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">Booking Type *</label>
+                <Select
+                  value={newVoucher.type}
+                  onChange={e => setNewVoucher({ ...newVoucher, type: e.target.value as any })}
+                >
+                  <option value="Flight">Flight</option>
+                  <option value="Hotel">Hotel</option>
+                  <option value="Transfer">Transfer</option>
+                  <option value="Activity">Activity</option>
+                  <option value="Visa">Visa</option>
+                  <option value="Other">Other</option>
+                </Select>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">Supplier Name *</label>
+                <Input
+                  type="text"
+                  placeholder="e.g. Emirates, Hilton"
+                  value={newVoucher.supplier}
+                  onChange={e => setNewVoucher({ ...newVoucher, supplier: e.target.value })}
+                />
+              </div>
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">Reference Number / PNR *</label>
+              <Input
+                type="text"
+                placeholder="e.g. ABCXYZ, HTL-98765"
+                value={newVoucher.referenceNumber}
+                onChange={e => setNewVoucher({ ...newVoucher, referenceNumber: e.target.value })}
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">Internal Notes</label>
+              <Input
+                type="text"
+                placeholder="Any special remarks or instructions"
+                value={newVoucher.notes}
+                onChange={e => setNewVoucher({ ...newVoucher, notes: e.target.value })}
+              />
+            </div>
+          </div>
+        </ModalBody>
+        <ModalFooter>
+          <Button variant="ghost" size="sm" onClick={() => setShowAddVoucherModal(false)}>Cancel</Button>
+          <Button size="sm" onClick={handleAddVoucherSubmit} disabled={!newVoucher.supplier.trim() || !newVoucher.referenceNumber.trim()}>
+            Save Booking
+          </Button>
+        </ModalFooter>
+      </Modal>
+
+      {/* ===================================================================== */}
+      {/* MODAL 4: ADD INVOICE MODAL */}
+      {/* ===================================================================== */}
+      <Modal open={showAddInvoiceModal} onClose={() => setShowAddInvoiceModal(false)}>
+        <ModalHeader onClose={() => setShowAddInvoiceModal(false)}>
+          <ModalTitle>Generate Invoice</ModalTitle>
+          <ModalDescription>Create a new invoice for this lead's bookings or services.</ModalDescription>
+        </ModalHeader>
+        <ModalBody>
+          <div className="space-y-4">
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">Invoice Description *</label>
+              <Input
+                type="text"
+                placeholder="e.g. 50% Advance Payment for Package"
+                value={newInvoice.description}
+                onChange={e => setNewInvoice({ ...newInvoice, description: e.target.value })}
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">Amount (₹) *</label>
+                <Input
+                  type="number"
+                  placeholder="e.g. 150000"
+                  value={newInvoice.amount}
+                  onChange={e => setNewInvoice({ ...newInvoice, amount: e.target.value })}
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">Status</label>
+                <Select
+                  value={newInvoice.status}
+                  onChange={e => setNewInvoice({ ...newInvoice, status: e.target.value as any })}
+                >
+                  <option value="Draft">Draft</option>
+                  <option value="Sent">Sent</option>
+                  <option value="Partially Paid">Partially Paid</option>
+                  <option value="Paid">Paid</option>
+                  <option value="Overdue">Overdue</option>
+                </Select>
+              </div>
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">Due Date</label>
+              <Input
+                type="date"
+                value={newInvoice.dueDate}
+                onChange={e => setNewInvoice({ ...newInvoice, dueDate: e.target.value })}
+              />
+            </div>
+          </div>
+        </ModalBody>
+        <ModalFooter>
+          <Button variant="ghost" size="sm" onClick={() => setShowAddInvoiceModal(false)}>Cancel</Button>
+          <Button size="sm" onClick={handleAddInvoiceSubmit} disabled={!newInvoice.description.trim() || !newInvoice.amount}>
+            Save Invoice
+          </Button>
+        </ModalFooter>
+      </Modal>
+
+      {/* ===================================================================== */}
+      {/* MODAL 5: UPDATE STATUS MODAL */}
+      {/* ===================================================================== */}
+      <Modal open={showUpdateStatusModal} onClose={() => setShowUpdateStatusModal(false)}>
+        <ModalHeader onClose={() => setShowUpdateStatusModal(false)}>
+          <ModalTitle>Update Lead Status</ModalTitle>
+          <ModalDescription>Change the status of this lead and provide mandatory remarks.</ModalDescription>
+        </ModalHeader>
+        <ModalBody>
+          <div className="space-y-4">
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">New Status *</label>
+              <Select
+                value={updateStatusData.status}
+                onChange={e => setUpdateStatusData({ ...updateStatusData, status: e.target.value as LeadStatus })}
+              >
+                <option value="New">New</option>
+                <option value="Contacted">Contacted</option>
+                <option value="Qualified">Qualified</option>
+                <option value="Proposal Sent">Proposal Sent</option>
+                <option value="Negotiating">Negotiating</option>
+                <option value="Booked">Booked</option>
+                <option value="Lost">Lost</option>
+              </Select>
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">Remarks / Notes *</label>
+              <textarea
+                className="w-full border border-slate-300 rounded-md p-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-transparent min-h-[100px]"
+                placeholder="Why are you changing the status? These remarks will be saved to the lead notes."
+                value={updateStatusData.remarks}
+                onChange={e => setUpdateStatusData({ ...updateStatusData, remarks: e.target.value })}
+              />
+            </div>
+          </div>
+        </ModalBody>
+        <ModalFooter>
+          <Button variant="ghost" size="sm" onClick={() => setShowUpdateStatusModal(false)}>Cancel</Button>
+          <Button size="sm" onClick={handleUpdateStatusSubmit} disabled={!updateStatusData.remarks.trim()}>
+            Update Status
+          </Button>
+        </ModalFooter>
+      </Modal>
+
     </div>
   );
 }
